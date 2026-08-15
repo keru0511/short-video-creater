@@ -924,6 +924,11 @@ async function handleProjectRoute(
     return;
   }
 
+  if (req.method === 'GET' && segments.length === 3 && segments[0] === 'assets' && segments[2] === 'source') {
+    await handleProjectSourceFile(req, res, projectId, segments[1]);
+    return;
+  }
+
   if (req.method === 'GET' && segments.length === 2 && segments[0] === 'previews') {
     await handleProjectPreview(req, res, projectId, segments[1]);
     return;
@@ -1015,6 +1020,29 @@ async function handleProjectGetAsset(
     json(res, 200, { ok: true, asset });
   } catch (err) {
     sendError(res, 400, toUserMessage(err));
+  }
+}
+
+async function handleProjectSourceFile(
+  _req: IncomingMessage,
+  res: ServerResponse,
+  projectId: string,
+  assetId: string,
+): Promise<void> {
+  try {
+    const filePath = await resolveAssetFilePath(root, projectId, assetId);
+    const info = await stat(filePath);
+    if (!info.isFile()) {
+      sendError(res, 404, 'ファイルが見つかりません');
+      return;
+    }
+    res.writeHead(200, {
+      'Content-Type': getContentType(filePath),
+      'Content-Length': String(info.size),
+    });
+    createReadStream(filePath).pipe(res);
+  } catch (err) {
+    sendError(res, 404, toUserMessage(err));
   }
 }
 

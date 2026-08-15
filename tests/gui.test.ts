@@ -196,6 +196,26 @@ describe('GUI server', () => {
     expect(data.fonts.length).toBeGreaterThan(0);
   });
 
+  it('serves original source files for scrubbing', async () => {
+    const projectId = 'source-test';
+    const image = await readFile(join(fixturesDir, 'image.png'));
+    const boundary = '----SourceTestBoundary' + Date.now();
+    const uploadBody = buildMultipartBody([{ name: 'file', filename: 'image.png', contentType: 'image/png', data: image }], boundary);
+    const uploadRes = await httpPost(
+      `${serverInfo.url}/api/projects/${projectId}/assets`,
+      uploadBody,
+      `multipart/form-data; boundary=${boundary}`,
+      { Origin: serverInfo.url },
+    );
+    expect(uploadRes.status).toBe(200);
+    const { asset } = JSON.parse(uploadRes.body.toString('utf8'));
+
+    const sourceRes = await httpGet(`${serverInfo.url}/api/projects/${projectId}/assets/${asset.assetId}/source`);
+    expect(sourceRes.status).toBe(200);
+    expect(sourceRes.headers['content-type']).toBe('image/png');
+    expect(sourceRes.body.length).toBeGreaterThan(0);
+  });
+
   it('generates a 9:16 h264/aac mp4 from uploaded fixtures', async () => {
     const image = await readFile(join(fixturesDir, 'image.png'));
     const audio = await readFile(join(fixturesDir, 'audio.mp3'));

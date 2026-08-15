@@ -88,19 +88,29 @@
     .clip-list { list-style: none; padding: 0; margin: 0; }
     .clip-list li {
       display: grid;
-      grid-template-columns: 60px 1fr auto;
+      grid-template-columns: 24px 120px 1fr auto;
       gap: 10px;
-      align-items: center;
+      align-items: start;
       padding: 10px;
       background: #f9f9fb;
       border-radius: 8px;
       margin-bottom: 8px;
+      border: 2px solid transparent;
+      transition: border-color 0.15s, box-shadow 0.15s;
     }
-    .clip-list li .thumb { width: 60px; height: 80px; object-fit: cover; border-radius: 6px; background: #ddd; }
+    .clip-list li.dragging { opacity: 0.4; }
+    .clip-list li.drag-over { border-color: #3385ff; box-shadow: 0 0 0 2px rgba(51,133,255,0.2); }
+    .clip-list .drag-handle { cursor: move; color: #888; font-size: 1.2rem; text-align: center; padding: 4px 0; user-select: none; }
+    .clip-list li .clip-preview { display: flex; flex-direction: column; gap: 6px; }
+    .clip-list li .thumb { width: 120px; height: 160px; object-fit: cover; border-radius: 6px; background: #ddd; }
+    .clip-list li .clip-preview video { width: 120px; height: 160px; object-fit: contain; border-radius: 6px; background: #000; }
     .clip-list li .fields { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
     .clip-list li .fields label { font-size: 0.8rem; color: #555; }
     .clip-list li .fields input[type="number"] { width: 70px; }
     .clip-list li .fields select { width: 90px; }
+    .clip-list li .fields .scrub-row { width: 100%; display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+    .clip-list li .fields .scrub-row label { font-size: 0.75rem; color: #666; }
+    .clip-list li .fields .scrub-row input[type="range"] { width: 100%; }
     .clip-list li .actions { display: flex; flex-direction: column; gap: 4px; }
     #status {
       white-space: pre-wrap;
@@ -327,6 +337,10 @@
       return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
     }
 
+    function getSourceUrl(assetId) {
+      return `/api/projects/${encodeURIComponent(state.projectId)}/assets/${encodeURIComponent(assetId)}/source`;
+    }
+
     async function api(method, path, body, isJson = false) {
       const opts = { method };
       if (body) {
@@ -401,7 +415,7 @@
       }
       state.clips = (config.clips || []).map((c) => {
         const asset = state.assets.find((a) => a.assetId === c.assetId);
-        return { ...c, name: asset?.name || c.assetId, type: asset?.type || 'video', duration: asset?.duration, previewUrl: asset?.previewUrl };
+        return { ...c, name: asset?.name || c.assetId, type: asset?.type || 'video', duration: asset?.duration, previewUrl: asset?.previewUrl, sourceUrl: asset ? getSourceUrl(asset.assetId) : c.sourceUrl };
       }).filter((c) => c.assetId);
       renderClips();
       if (config.mainAudio) {
@@ -540,6 +554,7 @@
         type: asset.type,
         duration: asset.duration,
         previewUrl: asset.previewUrl,
+        sourceUrl: getSourceUrl(asset.assetId),
         in: 0,
         out,
         fit: 'cover',
@@ -592,16 +607,111 @@
       const row = clipList.children[idx];
       if (!row) return;
       const clip = state.clips[idx];
-      const inRaw = row.querySelector('[data-field="in"]').value;
-      const outRaw = row.querySelector('[data-field="out"]').value;
-      clip.in = Number.isFinite(Number(inRaw)) ? Number(inRaw) : 0;
-      clip.out = outRaw ? Number(outRaw) : (clip.in + 1);
+      const inInput = row.querySelector('[data-field="in"]');
+      const outInput = row.querySelector('[data-field="out"]');
+      const inRaw = inInput.value;
+      const outRaw = outInput.value;
+      const max = Number.isFinite(clip.duration) ? clip.duration : Infinity;
+      let inVal = Number.isFinite(Number(inRaw)) ? Number(inRaw) : 0;
+      let outVal = outRaw ? Number(outRaw) : (inVal + 1);
+      inVal = Math.max(0, Math.min(inVal, max));
+      outVal = Math.max(inVal, Math.min(outVal, max));
+      clip.in = inVal;
+      clip.out = outVal;
+      inInput.value = formatTime(inVal);
+      outInput.value = formatTime(outVal);
+      const inRange = row.querySelector('[data-field="in-range"]');
+      const outRange = row.querySelector('[data-field="out-range"]');
+      if (inRange) { inRange.max = max; inRange.value = inVal; }
+      if (outRange) { outRange.max = max; outRange.value = outVal; }
+      const video = row.querySelector('video');
+      if (video && video.currentTime < inVal) video.currentTime = inVal;
       clip.fit = row.querySelector('select[data-field="fit"]').value;
       clip.scale = Math.max(0.1, Number(row.querySelector('[data-field="scale"]').value) || 1);
       clip.x = Number(row.querySelector('[data-field="x"]').value) || 0;
       clip.y = Number(row.querySelector('[data-field="y"]').value) || 0;
       updateTimelineInfo();
       saveTimeline();
+    }
+
+    function createClipPreview(clip, idx) {
+      const preview = document.createElement('div');
+      preview.className = 'clip-preview';
+      let video = null;
+      let inRange = null;
+      let outRange = null;
+      if (clip.type === 'video') {
+        video = document.createElement('video');
+        video.className = 'thumb';
+        video.src = clip.sourceUrl || getSourceUrl(clip.assetId);
+        video.poster = clip.previewUrl || '';
+        video.preload = 'metadata';
+        video.playsInline = true;
+        video.muted = true;
+        video.controls = false;
+        video.addEventListener('loadedmetadata', () => {
+          const d = video.duration || clip.duration || 0;
+          if (inRange) inRange.max = d;
+          if (outRange) outRange.max = d;
+          if (!Number.isFinite(clip.duration)) clip.duration = d;
+          updateTimelineInfo();
+        });
+        preview.appendChild(video);
+      } else {
+        const img = document.createElement('img');
+        img.className = 'thumb';
+        img.src = clip.previewUrl || getSourceUrl(clip.assetId) || '';
+        img.alt = clip.type || 'image';
+        img.onerror = () => { img.style.display = 'none'; };
+        preview.appendChild(img);
+      }
+      if (clip.type === 'video') {
+        const scrub = document.createElement('div');
+        scrub.className = 'scrub-row';
+        const max = clip.duration || 0;
+        inRange = document.createElement('input');
+        inRange.type = 'range'; inRange.min = 0; inRange.max = max; inRange.step = 0.1; inRange.value = clip.in; inRange.dataset.field = 'in-range';
+        outRange = document.createElement('input');
+        outRange.type = 'range'; outRange.min = 0; outRange.max = max; outRange.step = 0.1; outRange.value = clip.out; outRange.dataset.field = 'out-range';
+        const inLabel = document.createElement('label'); inLabel.textContent = 'in';
+        const outLabel = document.createElement('label'); outLabel.textContent = 'out';
+        scrub.appendChild(inLabel);
+        scrub.appendChild(inRange);
+        scrub.appendChild(outLabel);
+        scrub.appendChild(outRange);
+        const playBtn = document.createElement('button');
+        playBtn.type = 'button'; playBtn.className = 'small'; playBtn.textContent = '▶'; playBtn.style.width = '40px';
+        if (video) {
+          let isPlaying = false;
+          playBtn.addEventListener('click', () => {
+            if (isPlaying) { video.pause(); playBtn.textContent = '▶'; isPlaying = false; }
+            else { video.currentTime = clip.in; video.play(); playBtn.textContent = '⏸'; isPlaying = true; }
+          });
+          video.addEventListener('timeupdate', () => {
+            if (video.currentTime >= clip.out) { video.pause(); video.currentTime = clip.in; playBtn.textContent = '▶'; isPlaying = false; }
+          });
+          video.addEventListener('pause', () => { playBtn.textContent = '▶'; isPlaying = false; });
+          inRange.addEventListener('input', () => {
+            const t = Number(inRange.value);
+            const row = clipList.children[idx];
+            const inInput = row?.querySelector('[data-field="in"]');
+            if (inInput) inInput.value = formatTime(t);
+            if (video && !Number.isNaN(t)) video.currentTime = t;
+          });
+          inRange.addEventListener('change', () => updateClipFromInputs(idx));
+          outRange.addEventListener('input', () => {
+            const t = Number(outRange.value);
+            const row = clipList.children[idx];
+            const outInput = row?.querySelector('[data-field="out"]');
+            if (outInput) outInput.value = formatTime(t);
+            if (video && !Number.isNaN(t)) video.currentTime = t;
+          });
+          outRange.addEventListener('change', () => updateClipFromInputs(idx));
+        }
+        scrub.appendChild(playBtn);
+        preview.appendChild(scrub);
+      }
+      return { preview, video, inRange, outRange };
     }
 
     function renderClips() {
@@ -613,11 +723,24 @@
         const li = document.createElement('li');
         li.dataset.idx = i;
 
-        const thumb = document.createElement('img');
-        thumb.className = 'thumb';
-        thumb.src = clip.previewUrl || '';
-        thumb.alt = clip.type;
-        li.appendChild(thumb);
+        const handle = document.createElement('span');
+        handle.className = 'drag-handle';
+        handle.textContent = '≡';
+        handle.draggable = true;
+        handle.title = 'ドラッグして並べ替え';
+        handle.addEventListener('dragstart', (e) => {
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', String(i));
+          try { e.dataTransfer.setDragImage(li, 0, 0); } catch {}
+          li.classList.add('dragging');
+        });
+        handle.addEventListener('dragend', () => {
+          li.classList.remove('dragging');
+        });
+        li.appendChild(handle);
+
+        const { preview, video } = createClipPreview(clip, i);
+        li.appendChild(preview);
 
         const fields = document.createElement('div');
         fields.className = 'fields';
@@ -633,7 +756,14 @@
         inInput.step = 0.1;
         inInput.dataset.field = 'in';
         inInput.value = formatTime(clip.in);
-        inInput.addEventListener('change', () => updateClipFromInputs(i));
+        inInput.addEventListener('change', () => {
+          const t = Number(inInput.value);
+          const row = clipList.children[i];
+          const inRange = row?.querySelector('[data-field="in-range"]');
+          if (inRange) inRange.value = t;
+          if (video && !Number.isNaN(t)) video.currentTime = t;
+          updateClipFromInputs(i);
+        });
         fields.appendChild(inInput);
 
         fields.appendChild(document.createTextNode(' out:'));
@@ -643,7 +773,14 @@
         outInput.step = 0.1;
         outInput.dataset.field = 'out';
         outInput.value = formatTime(clip.out);
-        outInput.addEventListener('change', () => updateClipFromInputs(i));
+        outInput.addEventListener('change', () => {
+          const t = Number(outInput.value);
+          const row = clipList.children[i];
+          const outRange = row?.querySelector('[data-field="out-range"]');
+          if (outRange) outRange.value = t;
+          if (video && !Number.isNaN(t)) video.currentTime = t;
+          updateClipFromInputs(i);
+        });
         fields.appendChild(outInput);
 
         fields.appendChild(document.createTextNode(' 表示:'));
@@ -749,6 +886,35 @@
       }
       updateTimelineInfo(total);
     }
+
+    clipList.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const target = e.target.closest('li');
+      if (!target) return;
+      for (const li of clipList.querySelectorAll('li')) li.classList.remove('drag-over');
+      target.classList.add('drag-over');
+    });
+
+    clipList.addEventListener('dragleave', (e) => {
+      const target = e.target.closest('li');
+      if (target) target.classList.remove('drag-over');
+    });
+
+    clipList.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const data = e.dataTransfer.getData('text/plain');
+      const srcIdx = Number(data);
+      const target = e.target.closest('li');
+      for (const li of clipList.querySelectorAll('li')) li.classList.remove('drag-over');
+      if (!target || !Number.isFinite(srcIdx)) return;
+      const dstIdx = Number(target.dataset.idx);
+      if (srcIdx === dstIdx) return;
+      const [moved] = state.clips.splice(srcIdx, 1);
+      state.clips.splice(dstIdx, 0, moved);
+      renderClips();
+      saveTimeline();
+    });
 
     function updateTimelineInfo(total) {
       if (!Number.isFinite(total)) {
@@ -1129,6 +1295,7 @@
         type: asset?.type || 'video',
         duration: asset?.duration,
         previewUrl: asset?.previewUrl,
+        sourceUrl: getSourceUrl(s.assetId),
         in: s.in,
         out: s.out,
         fit: s.fit || 'cover',
@@ -1167,7 +1334,7 @@
         const data = await api('POST', `/api/projects/${encodeURIComponent(state.projectId)}/timeline/autofill`, {}, true);
         state.clips = (data.config?.clips || []).map((c) => {
           const asset = state.assets.find((a) => a.assetId === c.assetId);
-          return { ...c, x: c.x ?? 0, y: c.y ?? 0, scale: c.scale ?? 1, name: asset?.name || c.assetId, type: asset?.type || 'video', duration: asset?.duration, previewUrl: asset?.previewUrl };
+          return { ...c, x: c.x ?? 0, y: c.y ?? 0, scale: c.scale ?? 1, name: asset?.name || c.assetId, type: asset?.type || 'video', duration: asset?.duration, previewUrl: asset?.previewUrl, sourceUrl: asset ? getSourceUrl(asset.assetId) : c.sourceUrl };
         }).filter((c) => c.assetId);
         renderClips();
         saveTimeline();
