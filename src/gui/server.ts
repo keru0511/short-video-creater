@@ -924,7 +924,7 @@ async function handleProjectRoute(
     return;
   }
 
-  if (req.method === 'GET' && segments.length === 3 && segments[0] === 'assets' && segments[2] === 'source') {
+  if ((req.method === 'GET' || req.method === 'HEAD') && segments.length === 3 && segments[0] === 'assets' && segments[2] === 'source') {
     await handleProjectSourceFile(req, res, projectId, segments[1]);
     return;
   }
@@ -1023,8 +1023,22 @@ async function handleProjectGetAsset(
   }
 }
 
+function parseRangeHeader(range: string, total: number): { start: number; end: number } | null {
+  const match = range.match(/^bytes=(\d*)-(\d*)$/);
+  if (!match) return null;
+  const start = match[1] ? Number(match[1]) : NaN;
+  const end = match[2] ? Number(match[2]) : NaN;
+  if (Number.isNaN(start) && Number.isNaN(end)) return null;
+  if (Number.isNaN(start)) {
+    if (Number.isNaN(end) || end <= 0) return null;
+    return { start: Math.max(0, total - end), end: total - 1 };
+  }
+  if (Number.isNaN(end)) return { start, end: total - 1 };
+  return { start, end: Math.min(end, total - 1) };
+}
+
 async function handleProjectSourceFile(
-  _req: IncomingMessage,
+  req: IncomingMessage,
   res: ServerResponse,
   projectId: string,
   assetId: string,
@@ -1036,9 +1050,40 @@ async function handleProjectSourceFile(
       sendError(res, 404, 'ファイルが見つかりません');
       return;
     }
+    const total = Number(info.size);
+    const contentType = getContentType(filePath);
+    const range = req.headers.range;
+    if (req.method === 'HEAD') {
+      res.writeHead(200, {
+        'Content-Type': contentType,
+        'Content-Length': String(total),
+        'Accept-Ranges': 'bytes',
+      });
+      res.end();
+      return;
+    }
+    if (range) {
+      const parsed = parseRangeHeader(range, total);
+      if (!parsed || parsed.start >= total || parsed.start > parsed.end) {
+        res.writeHead(416, { 'Content-Range': `bytes */${total}` });
+        res.end('Range Not Satisfiable');
+        return;
+      }
+      const { start, end } = parsed;
+      const length = end - start + 1;
+      res.writeHead(206, {
+        'Content-Type': contentType,
+        'Content-Length': String(length),
+        'Content-Range': `bytes ${start}-${end}/${total}`,
+        'Accept-Ranges': 'bytes',
+      });
+      createReadStream(filePath, { start, end }).pipe(res);
+      return;
+    }
     res.writeHead(200, {
-      'Content-Type': getContentType(filePath),
-      'Content-Length': String(info.size),
+      'Content-Type': contentType,
+      'Content-Length': String(total),
+      'Accept-Ranges': 'bytes',
     });
     createReadStream(filePath).pipe(res);
   } catch (err) {

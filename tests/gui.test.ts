@@ -145,8 +145,18 @@ async function withBlockedGuiAudit<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 function httpGet(url: string, host?: string): Promise<{ status: number; body: Buffer; headers: IncomingHttpHeaders }> {
+  return httpRequest('GET', url, {}, host);
+}
+
+function httpRequest(
+  method: string,
+  url: string,
+  extraHeaders: Record<string, string> = {},
+  host?: string,
+): Promise<{ status: number; body: Buffer; headers: IncomingHttpHeaders }> {
   return new Promise((resolve, reject) => {
-    const req = request(url, { method: 'GET', headers: { Connection: 'close' } }, (res) => {
+    const headers: Record<string, string> = { Connection: 'close', ...extraHeaders };
+    const req = request(url, { method, headers }, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks), headers: res.headers }));
@@ -213,7 +223,22 @@ describe('GUI server', () => {
     const sourceRes = await httpGet(`${serverInfo.url}/api/projects/${projectId}/assets/${asset.assetId}/source`);
     expect(sourceRes.status).toBe(200);
     expect(sourceRes.headers['content-type']).toBe('image/png');
+    expect(sourceRes.headers['accept-ranges']).toBe('bytes');
     expect(sourceRes.body.length).toBeGreaterThan(0);
+
+    const headRes = await httpRequest('HEAD', `${serverInfo.url}/api/projects/${projectId}/assets/${asset.assetId}/source`);
+    expect(headRes.status).toBe(200);
+    expect(headRes.headers['content-type']).toBe('image/png');
+    expect(headRes.headers['accept-ranges']).toBe('bytes');
+    expect(headRes.body.length).toBe(0);
+
+    const total = sourceRes.body.length;
+    const rangeRes = await httpRequest('GET', `${serverInfo.url}/api/projects/${projectId}/assets/${asset.assetId}/source`, { Range: 'bytes=0-9' });
+    expect(rangeRes.status).toBe(206);
+    expect(rangeRes.headers['content-type']).toBe('image/png');
+    expect(rangeRes.headers['content-range']).toBe(`bytes 0-9/${total}`);
+    expect(rangeRes.body.length).toBe(10);
+    expect(rangeRes.body.equals(sourceRes.body.subarray(0, 10))).toBe(true);
   });
 
   it('generates a 9:16 h264/aac mp4 from uploaded fixtures', async () => {
