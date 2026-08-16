@@ -1,67 +1,68 @@
-import { verifyApproval, ApprovalError, canonicalSha256 } from './approval.js';
+import { verifyApproval, ApprovalError } from './approval.js';
+import { CliUsageError, runCli } from './cli-runner.js';
 
-function printUsage(): void {
-  console.log('Usage: tsx src/approval-cli.ts --request <path> --receipt <path> --project-root <dir> [--now <ISO-8601>]');
+const usage = 'Usage: tsx src/approval-cli.ts --request <path> --receipt <path> --project-root <dir> [--now <ISO-8601>]';
+
+interface ApprovalArgs {
+  requestRel: string;
+  receiptRel: string;
+  projectRoot: string;
+  now?: string;
 }
 
-function parseArgs(argv: string[]): { requestRel: string; receiptRel: string; projectRoot: string; now?: string } {
+function parseArgs(args: string[]): ApprovalArgs {
   let requestRel: string | undefined;
   let receiptRel: string | undefined;
   let projectRoot: string | undefined;
   let now: string | undefined;
 
-  for (let i = 2; i < argv.length; i++) {
-    const arg = argv[i];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
     if (arg === '--request') {
-      requestRel = argv[++i];
+      requestRel = args[++i];
     } else if (arg === '--receipt') {
-      receiptRel = argv[++i];
+      receiptRel = args[++i];
     } else if (arg === '--project-root') {
-      projectRoot = argv[++i];
+      projectRoot = args[++i];
     } else if (arg === '--now') {
-      now = argv[++i];
+      now = args[++i];
     } else if (arg === '--help' || arg === '-h') {
-      printUsage();
+      console.log(usage);
       process.exit(0);
     }
   }
 
   if (!requestRel || !receiptRel || !projectRoot) {
-    printUsage();
-    process.exit(1);
+    throw new CliUsageError();
   }
 
   return { requestRel, receiptRel, projectRoot, now };
 }
 
-async function main(): Promise<void> {
-  const { requestRel, receiptRel, projectRoot, now } = parseArgs(process.argv);
-  try {
-    const result = await verifyApproval(projectRoot, requestRel, receiptRel, now ? { now } : undefined);
-    console.log(JSON.stringify(result, null, 2));
-    process.exit(result.approved ? 0 : 1);
-  } catch (err) {
-    const code = err instanceof ApprovalError ? err.code : 'UNEXPECTED_ERROR';
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(
-      JSON.stringify(
-        {
-          approved: false,
-          error: code,
-          message,
-          ...(err instanceof ApprovalError && err.decision
-            ? { decision: err.decision, decisionPath: err.decisionPath }
-            : {}),
-        },
-        null,
-        2,
-      ),
-    );
-    process.exit(1);
-  }
+async function main({ requestRel, receiptRel, projectRoot, now }: ApprovalArgs): Promise<number> {
+  const result = await verifyApproval(projectRoot, requestRel, receiptRel, now ? { now } : undefined);
+  console.log(JSON.stringify(result, null, 2));
+  return result.approved ? 0 : 1;
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
+runCli({
+  argv: process.argv,
+  parseArgs,
+  main,
+  usage,
+  usageOutput: 'stdout',
+  errorFormatter: (err) => {
+    const code = err instanceof ApprovalError ? err.code : 'UNEXPECTED_ERROR';
+    const message = err instanceof Error ? err.message : String(err);
+    return JSON.stringify(
+      {
+        approved: false,
+        error: code,
+        message,
+        ...(err instanceof ApprovalError && err.decision ? { decision: err.decision, decisionPath: err.decisionPath } : {}),
+      },
+      null,
+      2,
+    );
+  },
 });

@@ -3,6 +3,12 @@ import { fileURLToPath } from 'node:url';
 import { loadPreviousCatalog } from './catalog-diff.js';
 import { buildMediaSegmentManifest, writeMediaSegmentManifest } from './media-segments.js';
 import { resolveSafePath } from './core.js';
+import { CliUsageError, runCli } from './cli-runner.js';
+
+const usage =
+  'Usage: npx tsx src/media-segments-cli.ts <catalog-relative.json> <input-dir> [output-relative.json]';
+
+const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
 function normalizeOutputRel(outputRel: string): string {
   const normalized = outputRel.replace(/\\/g, '/');
@@ -12,19 +18,22 @@ function normalizeOutputRel(outputRel: string): string {
   return normalized;
 }
 
-async function main(): Promise<void> {
-  const args = process.argv.slice(2);
-  if (args.length < 2) {
-    console.error(
-      'Usage: npx tsx src/media-segments-cli.ts <catalog-relative.json> <input-dir> [output-relative.json]',
-    );
-    process.exit(1);
-  }
+interface MediaSegmentsArgs {
+  catalogRel: string;
+  inputDir: string;
+  outputRel: string;
+}
 
+function parseArgs(args: string[]): MediaSegmentsArgs {
+  if (args.length < 2 || args.length > 3) {
+    throw new CliUsageError();
+  }
   const [catalogRel, inputDir, rawOutputRel = 'media-segments/manifest.json'] = args;
   const outputRel = normalizeOutputRel(rawOutputRel);
-  const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
+  return { catalogRel, inputDir, outputRel };
+}
 
+async function main({ catalogRel, inputDir, outputRel }: MediaSegmentsArgs): Promise<void> {
   // Resolve the catalog input path first so we can fail closed if the manifest
   // output aliases the input catalog (same path, same realpath, same inode, or
   // a hard link). This reuses the same safe-path logic as catalog-cli.
@@ -32,17 +41,10 @@ async function main(): Promise<void> {
 
   const catalog = await loadPreviousCatalog(root, catalogRel);
   const manifest = buildMediaSegmentManifest(catalog);
-  const outPath = await writeMediaSegmentManifest(
-    manifest,
-    root,
-    outputRel,
-    resolve(inputDir),
-    { previousCatalogPath },
-  );
+  const outPath = await writeMediaSegmentManifest(manifest, root, outputRel, resolve(inputDir), {
+    previousCatalogPath,
+  });
   console.log(`Media segment manifest written to ${outPath} (${manifest.count} segments)`);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+runCli({ argv: process.argv, parseArgs, main, usage });

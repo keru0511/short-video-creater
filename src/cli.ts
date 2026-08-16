@@ -3,23 +3,41 @@ import { cp, lstat, mkdir, readFile } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generate, ffprobe, resolveSafePath } from './core.js';
-import { ensureTrustedDirectory, getErrorMessage, maskErrorMessage, prepareAuditAssets, prepareJobAssetDir, writeAuditManifest, type AuditSource } from './audit.js';
+import {
+  ensureTrustedDirectory,
+  getErrorMessage,
+  maskErrorMessage,
+  prepareAuditAssets,
+  prepareJobAssetDir,
+  writeAuditManifest,
+  type AuditSource,
+} from './audit.js';
+import { CliUsageError, runCli } from './cli-runner.js';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const fixturesDir = resolve(root, 'fixtures');
 const outputDir = resolve(root, 'output');
 const fontsDir = resolve(root, 'fonts');
 
-async function main(): Promise<void> {
-  const args = process.argv.slice(2);
+const usage = 'Usage: npx tsx src/cli.ts [timeline.json] | --verify-only [output/video.mp4]';
+
+type CliArgs = { mode: 'verify'; file: string } | { mode: 'generate'; timelinePath: string };
+
+function parseArgs(args: string[]): CliArgs {
   if (args[0] === '--verify-only') {
-    const file = args[1] ?? 'output/video.mp4';
-    const probe = await ffprobe(resolve(root, file));
+    return { mode: 'verify', file: args[1] ?? 'output/video.mp4' };
+  }
+  return { mode: 'generate', timelinePath: args[0] ?? 'fixtures/timeline.json' };
+}
+
+async function main(args: CliArgs): Promise<void> {
+  if (args.mode === 'verify') {
+    const probe = await ffprobe(resolve(root, args.file));
     console.log(JSON.stringify(probe, null, 2));
     return;
   }
 
-  const timelinePath = args[0] ?? 'fixtures/timeline.json';
+  const { timelinePath } = args;
   const jobId = randomUUID();
   const startedAt = new Date().toISOString();
   let input: unknown;
@@ -116,8 +134,8 @@ async function main(): Promise<void> {
       fixturesDir: assetInfo.assetsDir,
       fontsDir: assetInfo.assetsDir,
       timeline: input as Record<string, unknown> | undefined,
-      assetMap: assetInfo.assetMap,
-      originalTimelineHash: assetInfo.originalTimelineHash,
+      assetMap: assetInfo?.assetMap,
+      originalTimelineHash: assetInfo?.originalTimelineHash,
       error: err,
     });
     console.error('Audit job ID:', jobId);
@@ -157,7 +175,10 @@ async function main(): Promise<void> {
   console.log('Audit manifest:', manifestPath);
 }
 
-main().catch((err) => {
-  console.error(maskErrorMessage(getErrorMessage(err), root));
-  process.exit(1);
+runCli({
+  argv: process.argv,
+  parseArgs,
+  main,
+  usage,
+  errorFormatter: (err) => maskErrorMessage(getErrorMessage(err), root),
 });

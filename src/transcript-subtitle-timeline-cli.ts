@@ -1,20 +1,26 @@
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateAndWriteSubtitleTimeline } from './transcript-subtitle-timeline.js';
+import { CliUsageError, runCli } from './cli-runner.js';
 
-function printUsage(): void {
-  console.error(
-    'Usage: npx tsx src/transcript-subtitle-timeline-cli.ts <media-manifest-rel.json> <selection-rel.json> <transcript-manifest-rel.json> <style-rel.json> <input-dir> [output-rel.json]',
-  );
+const usage =
+  'Usage: npx tsx src/transcript-subtitle-timeline-cli.ts <media-manifest-rel.json> <selection-rel.json> <transcript-manifest-rel.json> <style-rel.json> <input-dir> [output-rel.json]';
+
+const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
+
+interface SubtitleTimelineArgs {
+  mediaManifestRel: string;
+  selectionRel: string;
+  transcriptManifestRel: string;
+  styleRel: string;
+  inputDir: string;
+  outputRel: string;
 }
 
-async function main(): Promise<void> {
-  const args = process.argv.slice(2);
+function parseArgs(args: string[]): SubtitleTimelineArgs {
   if (args.length < 5 || args.length > 6) {
-    printUsage();
-    process.exit(1);
+    throw new CliUsageError();
   }
-
   const [
     mediaManifestRel,
     selectionRel,
@@ -23,8 +29,17 @@ async function main(): Promise<void> {
     inputDir,
     outputRel = 'timelines/subtitled.json',
   ] = args;
-  const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
+  return { mediaManifestRel, selectionRel, transcriptManifestRel, styleRel, inputDir, outputRel };
+}
 
+async function main({
+  mediaManifestRel,
+  selectionRel,
+  transcriptManifestRel,
+  styleRel,
+  inputDir,
+  outputRel,
+}: SubtitleTimelineArgs): Promise<void> {
   const result = await generateAndWriteSubtitleTimeline({
     projectRoot: root,
     inputRoot: resolve(inputDir),
@@ -44,7 +59,4 @@ async function main(): Promise<void> {
   console.log(`Style SHA-256: ${result.styleSha256}`);
 }
 
-main().catch((err) => {
-  console.error(err instanceof Error ? err.message : String(err));
-  process.exit(1);
-});
+runCli({ argv: process.argv, parseArgs, main, usage });
