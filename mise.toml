@@ -1,0 +1,13 @@
+[tools]
+node = "20.18.1"
+npm = "10.8.2"
+"github:mizchi/actrun" = "0.29.0"
+
+[tasks.ci]
+run = "actrun workflow run .github/workflows/ci.yml"
+
+[tasks.generate]
+run = "npm run generate:fixtures && npm run generate:video -- fixtures/timeline.json"
+
+[tasks.test]
+run = "npm run typecheck && npm test"

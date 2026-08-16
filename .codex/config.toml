@@ -1,0 +1,11 @@
+# OpenAI Codex App Server / CLI MCP configuration
+# Place this file at ~/.codex/config.toml or keep it in this repository as .codex/config.toml
+# and run `codex` from the repository root.
+
+[[mcp.servers]]
+name = "short-video-creater"
+command = "npx"
+args = ["tsx", "src/codex-mcp-server.ts"]
+# Alternatively, if tsx is not available globally:
+# command = "node"
+# args = ["--import", "tsx", "src/codex-mcp-server.ts"]

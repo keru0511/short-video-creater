@@ -1,0 +1,31 @@
+name: Bug report
+about: バグを報告する
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: 現象
+      description: 何が起きたか、どのような動作を期待していたかを記載してください。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 再現手順
+      description: コマンド、設定ファイル、素材情報などを含めて最小の再現手順を記載してください。
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 環境
+      description: OS、Node.js バージョン、npm バージョン、FFmpeg バージョンなどを記載してください。
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: ログ・スクリーンショット
+      description: エラーログや画面のスクリーンショットがあれば貼り付けてください。機密情報は含めないでください。

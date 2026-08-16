@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "v1",
+  "ranges": [
+    {
+      "assetContentId": "dd8e4f71cb526aedf7456a50e9a08af4128a3d6891cd8940c518ec63ce001909",
+      "relativePath": "black.mp4",
+      "start": 0,
+      "end": 2.5
+    },
+    {
+      "assetContentId": "dd8e4f71cb526aedf7456a50e9a08af4128a3d6891cd8940c518ec63ce001909",
+      "relativePath": "black.mp4",
+      "start": 2.5,
+      "end": 5
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "name": "short-video-creater",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --no-file-parallelism",
+    "generate:fixtures": "tsx src/fixtures.ts",
+    "setup:fonts": "tsx src/gui/fonts.ts",
+    "generate:video": "tsx src/cli.ts",
+    "gui": "tsx src/gui/server.ts",
+    "gui:launch": "tsx src/gui/launcher.ts",
+    "mcp-server": "tsx src/codex-mcp-server.ts",
+    "verify": "tsx src/cli.ts --verify-only output/video.mp4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.5.0",
+    "zod": "^3.22.0"
+  }
+}

@@ -1,0 +1,1186 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>short-video-creater ローカルGUI</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      padding: 16px;
+      background: #f5f5f7;
+      color: #222;
+      line-height: 1.5;
+    }
+    h1 { font-size: 1.4rem; margin: 0 0 16px; }
+    h2 { font-size: 1.1rem; margin: 24px 0 8px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+    .card {
+      background: #fff;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    .dropzone {
+      border: 2px dashed #aaa;
+      border-radius: 8px;
+      padding: 24px;
+      text-align: center;
+      color: #666;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s;
+      position: relative;
+      overflow: hidden;
+    }
+    .dropzone:hover, .dropzone.dragover {
+      background: #eef6ff;
+      border-color: #3385ff;
+    }
+    .dropzone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      pointer-events: none;
+    }
+    button {
+      background: #3385ff;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 12px;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    button:disabled { background: #aaa; cursor: not-allowed; }
+    button.secondary { background: #6c757d; }
+    button.danger { background: #dc3545; }
+    button.small { padding: 4px 8px; font-size: 0.8rem; }
+    .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+    .row label { min-width: 100px; }
+    .asset-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .asset-card {
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 8px;
+      text-align: center;
+      background: #f9f9fb;
+      position: relative;
+    }
+    .asset-card .thumb {
+      width: 100%;
+      aspect-ratio: 9 / 16;
+      object-fit: cover;
+      border-radius: 6px;
+      background: #eee;
+    }
+    .asset-card .name { font-size: 0.75rem; word-break: break-all; margin: 6px 0 2px; }
+    .asset-card .meta { font-size: 0.7rem; color: #666; }
+    .asset-card .actions { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
+    .clip-list { list-style: none; padding: 0; margin: 0; }
+    .clip-list li {
+      display: grid;
+      grid-template-columns: 60px 1fr auto;
+      gap: 10px;
+      align-items: center;
+      padding: 10px;
+      background: #f9f9fb;
+      border-radius: 8px;
+      margin-bottom: 8px;
+    }
+    .clip-list li .thumb { width: 60px; height: 80px; object-fit: cover; border-radius: 6px; background: #ddd; }
+    .clip-list li .fields { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .clip-list li .fields label { font-size: 0.8rem; color: #555; }
+    .clip-list li .fields input[type="number"] { width: 70px; }
+    .clip-list li .fields select { width: 90px; }
+    .clip-list li .actions { display: flex; flex-direction: column; gap: 4px; }
+    #status {
+      white-space: pre-wrap;
+      background: #f9f9fb;
+      border-radius: 6px;
+      padding: 12px;
+      min-height: 60px;
+      margin-top: 12px;
+    }
+    #status.error { background: #ffeaea; color: #900; }
+    #status.success { background: #eafaf0; color: #006622; }
+    video { max-width: 100%; max-height: 480px; border-radius: 8px; margin-top: 8px; }
+    .subtitle-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+    .subtitle-row input[type="text"] { flex: 1; min-width: 120px; }
+    .subtitle-row input[type="number"] { width: 70px; }
+    textarea { width: 100%; min-height: 80px; font-family: monospace; font-size: 0.85rem; }
+    .actions { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+    code { background: #eee; padding: 2px 4px; border-radius: 4px; }
+    .suggestion-card { border: 1px solid #ddd; border-radius: 8px; padding: 10px; margin-bottom: 8px; background: #f9f9fb; }
+    .suggestion-card .title { font-weight: bold; font-size: 0.9rem; }
+    .suggestion-card .meta { font-size: 0.8rem; color: #666; }
+    .suggestion-card .reasons { font-size: 0.8rem; color: #444; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <h1>short-video-creater ローカルGUI</h1>
+
+  <div class="card">
+    <h2>プロジェクト</h2>
+    <div class="row">
+      <label for="projectId">プロジェクトID:</label>
+      <input type="text" id="projectId" value="default" />
+      <button type="button" id="loadProjectBtn" class="secondary small">読み込む</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>1. 素材ライブラリ</h2>
+    <div class="dropzone" id="assetDrop">
+      ここに画像・動画・音声をドラッグ＆ドロップ<br>またはクリックして選択
+      <input type="file" id="assetInput" multiple accept="image/*,video/*,audio/*">
+    </div>
+    <div id="assetList" class="asset-grid"></div>
+  </div>
+
+  <div class="card">
+    <h2>2. トレンド分析</h2>
+    <button type="button" id="analyzeTrendBtn" class="secondary small">伸びそうなクリップを分析</button>
+    <div id="trendSuggestions" style="margin-top:10px;"></div>
+    <button type="button" id="autofillTrendBtn" class="small" style="display:none;margin-top:10px;">上位クリップを自動追加</button>
+  </div>
+
+  <div class="card">
+    <h2>3. タイムライン</h2>
+    <ul class="clip-list" id="clipList"></ul>
+    <div id="timelineInfo" style="margin-top:8px;color:#666;font-size:0.85rem;">クリップを追加してください</div>
+  </div>
+
+  <div class="card">
+    <h2>4. 主音声（任意）</h2>
+    <div id="mainAudioSection" class="row">未設定</div>
+  </div>
+
+  <div class="card">
+    <h2>5. BGM（任意）</h2>
+    <div id="bgmSection" class="row">未設定</div>
+  </div>
+
+  <div class="card">
+    <h2>6. 字幕（任意）</h2>
+    <div id="subtitleList"></div>
+    <button type="button" id="addSubtitle" class="secondary small">字幕を追加</button>
+    <hr style="margin:16px 0;border:0;border-top:1px solid #ddd;">
+    <label style="font-size:0.85rem;color:#555;">トランスクリプト（JSON: [{start,end,text}]）から字幕を自動生成</label>
+    <textarea id="transcriptJson" placeholder='[{"start":0,"end":1.5,"text":"こんにちは"}]'></textarea>
+    <button type="button" id="importTranscript" class="secondary small">トランスクリプトから読み込む</button>
+  </div>
+
+  <div class="card">
+    <h2>7. 設定</h2>
+    <div class="row">
+      <label>クロスフェード</label>
+      <input type="checkbox" id="crossfadeEnabled">
+      <label for="crossfadeEnabled">有効にする</label>
+      <input type="number" id="crossfadeDuration" value="0.5" min="0.1" step="0.1" disabled> 秒
+    </div>
+    <div class="row">
+      <label>出力品質</label>
+      <label><input type="radio" name="outputPreset" value="preview" checked> preview（速い）</label>
+      <label><input type="radio" name="outputPreset" value="final"> final（高品質）</label>
+    </div>
+    <div class="row">
+      <label>背景色</label>
+      <input type="color" id="background" value="#000000">
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>8. 生成</h2>
+    <button type="button" id="generateBtn">動画を生成</button>
+    <div id="status">待機中</div>
+    <div id="result" style="display:none;">
+      <video id="player" controls></video>
+      <div class="actions">
+        <a id="downloadLink" href="#" download="video.mp4"><button type="button">MP4を保存</button></a>
+        <button type="button" id="openFolderBtn" class="secondary">出力フォルダを開く</button>
+      </div>
+      <details>
+        <summary>詳細</summary>
+        <pre id="details"></pre>
+      </details>
+    </div>
+  </div>
+
+  <script>
+    const projectIdInput = document.getElementById('projectId');
+    const loadProjectBtn = document.getElementById('loadProjectBtn');
+    const assetDrop = document.getElementById('assetDrop');
+    const assetInput = document.getElementById('assetInput');
+    const assetList = document.getElementById('assetList');
+    const clipList = document.getElementById('clipList');
+    const timelineInfo = document.getElementById('timelineInfo');
+    const mainAudioSection = document.getElementById('mainAudioSection');
+    const bgmSection = document.getElementById('bgmSection');
+    const subtitleList = document.getElementById('subtitleList');
+    const addSubtitleBtn = document.getElementById('addSubtitle');
+    const transcriptJson = document.getElementById('transcriptJson');
+    const importTranscriptBtn = document.getElementById('importTranscript');
+    const crossfadeEnabled = document.getElementById('crossfadeEnabled');
+    const crossfadeDuration = document.getElementById('crossfadeDuration');
+    const background = document.getElementById('background');
+    const generateBtn = document.getElementById('generateBtn');
+    const status = document.getElementById('status');
+    const result = document.getElementById('result');
+    const player = document.getElementById('player');
+    const downloadLink = document.getElementById('downloadLink');
+    const openFolderBtn = document.getElementById('openFolderBtn');
+    const details = document.getElementById('details');
+    const analyzeTrendBtn = document.getElementById('analyzeTrendBtn');
+    const autofillTrendBtn = document.getElementById('autofillTrendBtn');
+    const trendSuggestions = document.getElementById('trendSuggestions');
+
+    function getInitialProjectId() {
+      const params = new URLSearchParams(window.location.search);
+      const fromUrl = params.get('project')?.trim();
+      if (fromUrl) return fromUrl;
+      try {
+        const fromStorage = localStorage.getItem('short-video-creater.projectId');
+        if (fromStorage) return fromStorage;
+      } catch {}
+      return projectIdInput.value.trim() || 'default';
+    }
+
+    function rememberProjectId(id) {
+      try {
+        localStorage.setItem('short-video-creater.projectId', id);
+      } catch {}
+      const url = new URL(window.location.href);
+      url.searchParams.set('project', id);
+      window.history.replaceState({}, '', url.toString());
+    }
+
+    const state = {
+      projectId: getInitialProjectId(),
+      assets: [],
+      clips: [],
+      mainAudio: null,
+      bgm: null,
+      subtitles: [],
+      trendSuggestions: [],
+    };
+
+    projectIdInput.value = state.projectId;
+
+    let availableFonts = [];
+
+    async function loadFonts() {
+      try {
+        const data = await api('GET', '/api/fonts');
+        availableFonts = data.fonts || [];
+      } catch (e) {
+        availableFonts = [];
+      }
+      updateFontSelectOptions();
+    }
+
+    function getFontOptions(current = '') {
+      const entries = [['', '自動']];
+      for (const f of availableFonts) entries.push([f, f]);
+      if (current && !availableFonts.includes(current)) entries.push([current, current]);
+      return Object.fromEntries(entries);
+    }
+
+    function updateFontSelectOptions() {
+      for (const row of subtitleList.querySelectorAll('.subtitle-row')) {
+        const fontSelect = row.querySelector('select[data-field="font"]');
+        if (!fontSelect) continue;
+        const current = fontSelect.value;
+        const options = getFontOptions(current);
+        fontSelect.textContent = '';
+        for (const [value, label] of Object.entries(options)) {
+          const option = document.createElement('option');
+          option.value = value;
+          option.textContent = label;
+          fontSelect.appendChild(option);
+        }
+        fontSelect.value = options[current] ? current : '';
+      }
+    }
+
+    function setStatus(msg, isError = false) {
+      status.textContent = msg;
+      status.className = isError ? 'error' : (msg.includes('完了') ? 'success' : '');
+    }
+
+    function formatTime(s) {
+      if (!Number.isFinite(s)) return '0.0';
+      return s.toFixed(2);
+    }
+
+    function formatSize(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    async function api(method, path, body, isJson = false) {
+      const opts = { method };
+      if (body) {
+        if (body instanceof FormData) {
+          opts.body = body;
+        } else {
+          opts.headers = { 'Content-Type': 'application/json' };
+          opts.body = JSON.stringify(body);
+        }
+      }
+      const res = await fetch(path, opts);
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = { ok: false, error: text || `サーバーからの応答を解析できませんでした (HTTP ${res.status})` };
+      }
+      if (!res.ok || !data.ok) {
+        const err = new Error(data.error || `HTTP エラー ${res.status}`);
+        err.status = res.status;
+        throw err;
+      }
+      return data;
+    }
+
+    function clearTrendUi() {
+      state.trendSuggestions = [];
+      trendSuggestions.textContent = '';
+      autofillTrendBtn.style.display = 'none';
+    }
+
+    async function loadAssets() {
+      try {
+        const data = await api('GET', `/api/projects/${encodeURIComponent(state.projectId)}/assets`);
+        state.assets = data.assets || [];
+        renderAssets();
+        await loadTimeline();
+        clearTrendUi();
+        projectIdInput.value = state.projectId;
+        rememberProjectId(state.projectId);
+        setStatus('プロジェクトを読み込みました');
+      } catch (e) {
+        state.assets = [];
+        state.clips = [];
+        state.mainAudio = null;
+        state.bgm = null;
+        state.subtitles = [];
+        state.trendSuggestions = [];
+        renderAssets();
+        renderClips();
+        renderMainAudio();
+        renderBgm();
+        clearTrendUi();
+        setSubtitles([]);
+        setStatus(`プロジェクトの読み込みに失敗: ${e.message}`, true);
+      }
+    }
+
+    async function loadTimeline() {
+      const { config } = await api('GET', `/api/projects/${encodeURIComponent(state.projectId)}/timeline/config`);
+      if (!config) return;
+      if (config.outputPreset) {
+        const radio = document.querySelector(`input[name="outputPreset"][value="${config.outputPreset}"]`);
+        if (radio) radio.checked = true;
+      }
+      if (config.background) background.value = config.background;
+      if (config.crossfade) {
+        crossfadeEnabled.checked = config.crossfade.enabled;
+        crossfadeDuration.value = config.crossfade.duration;
+        crossfadeDuration.disabled = !config.crossfade.enabled;
+      }
+      state.clips = (config.clips || []).map((c) => {
+        const asset = state.assets.find((a) => a.assetId === c.assetId);
+        return { ...c, name: asset?.name || c.assetId, type: asset?.type || 'video', duration: asset?.duration, previewUrl: asset?.previewUrl };
+      }).filter((c) => c.assetId);
+      renderClips();
+      if (config.mainAudio) {
+        const asset = state.assets.find((a) => a.assetId === config.mainAudio.assetId);
+        state.mainAudio = { ...config.mainAudio, name: asset?.name || config.mainAudio.assetId, in: config.mainAudio.in ?? 0, out: config.mainAudio.out ?? (asset?.duration || 0) };
+      } else {
+        state.mainAudio = null;
+      }
+      renderMainAudio();
+      if (config.bgm) {
+        const asset = state.assets.find((a) => a.assetId === config.bgm.assetId);
+        state.bgm = { ...config.bgm, name: asset?.name || config.bgm.assetId, in: config.bgm.in ?? 0, out: config.bgm.out ?? (asset?.duration || 0), start: config.bgm.start ?? 0 };
+      } else {
+        state.bgm = null;
+      }
+      renderBgm();
+      setSubtitles(config.subtitles || []);
+      updateTimelineInfo();
+    }
+
+    async function saveTimeline() {
+      const config = buildTimelineConfig();
+      try {
+        await api('POST', `/api/projects/${encodeURIComponent(state.projectId)}/timeline/save`, config, true);
+      } catch (e) {
+        setStatus(`タイムライン保存に失敗: ${e.message}`, true);
+      }
+    }
+
+    function renderAssets() {
+      assetList.textContent = '';
+      for (const asset of state.assets) {
+        const card = document.createElement('div');
+        card.className = 'asset-card';
+
+        if (asset.previewUrl) {
+          const img = document.createElement('img');
+          img.src = asset.previewUrl;
+          img.className = 'thumb';
+          card.appendChild(img);
+        } else if (asset.type === 'audio') {
+          const div = document.createElement('div');
+          div.className = 'thumb';
+          div.style.display = 'flex';
+          div.style.alignItems = 'center';
+          div.style.justifyContent = 'center';
+          div.textContent = 'audio';
+          card.appendChild(div);
+        } else {
+          const div = document.createElement('div');
+          div.className = 'thumb';
+          card.appendChild(div);
+        }
+
+        const name = document.createElement('div');
+        name.className = 'name';
+        name.textContent = asset.name;
+        card.appendChild(name);
+
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        const dur = asset.duration ? formatTime(asset.duration) + 's' : '-';
+        meta.textContent = `${asset.type} · ${formatSize(asset.sizeBytes)} · ${dur}`;
+        card.appendChild(meta);
+
+        const actions = document.createElement('div');
+        actions.className = 'actions';
+
+        if (asset.type === 'image' || asset.type === 'video') {
+          const addClipBtn = document.createElement('button');
+          addClipBtn.type = 'button';
+          addClipBtn.className = 'small';
+          addClipBtn.textContent = 'クリップに追加';
+          addClipBtn.addEventListener('click', () => addClip(asset));
+          actions.appendChild(addClipBtn);
+        }
+
+        if (asset.type === 'audio') {
+          const mainBtn = document.createElement('button');
+          mainBtn.type = 'button';
+          mainBtn.className = 'secondary small';
+          mainBtn.textContent = '主音声';
+          mainBtn.addEventListener('click', () => setMainAudio(asset));
+          actions.appendChild(mainBtn);
+
+          const bgmBtn = document.createElement('button');
+          bgmBtn.type = 'button';
+          bgmBtn.className = 'secondary small';
+          bgmBtn.textContent = 'BGM';
+          bgmBtn.addEventListener('click', () => setBgm(asset));
+          actions.appendChild(bgmBtn);
+        }
+
+        card.appendChild(actions);
+        assetList.appendChild(card);
+      }
+    }
+
+    async function uploadFiles(files) {
+      if (!files.length) return;
+      setStatus(`アップロード中 (${files.length} ファイル)...`);
+      for (const file of files) {
+        const form = new FormData();
+        form.append('file', file, file.name);
+        try {
+          await api('POST', `/api/projects/${encodeURIComponent(state.projectId)}/assets`, form);
+        } catch (e) {
+          setStatus(`${file.name} のアップロードに失敗: ${e.message}`, true);
+          return;
+        }
+      }
+      await loadAssets();
+      setStatus('アップロード完了');
+    }
+
+    function setupDrop(drop, input) {
+      drop.addEventListener('click', () => input.click());
+      drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('dragover'); });
+      drop.addEventListener('dragleave', () => drop.classList.remove('dragover'));
+      drop.addEventListener('drop', (e) => {
+        e.preventDefault();
+        drop.classList.remove('dragover');
+        uploadFiles(e.dataTransfer.files);
+      });
+      input.addEventListener('change', (e) => { uploadFiles(e.target.files); e.target.value = ''; });
+    }
+
+    setupDrop(assetDrop, assetInput);
+
+    function addClip(asset) {
+      let out = asset.duration || 5;
+      if (asset.type === 'image') out = 5;
+      state.clips.push({
+        assetId: asset.assetId,
+        name: asset.name,
+        type: asset.type,
+        duration: asset.duration,
+        previewUrl: asset.previewUrl,
+        in: 0,
+        out,
+        fit: 'cover',
+        x: 0,
+        y: 0,
+        scale: 1,
+      });
+      renderClips();
+      saveTimeline();
+    }
+
+    function removeClip(idx) {
+      state.clips.splice(idx, 1);
+      renderClips();
+      saveTimeline();
+    }
+
+    function moveClip(idx, dir) {
+      const newIdx = idx + dir;
+      if (newIdx < 0 || newIdx >= state.clips.length) return;
+      [state.clips[idx], state.clips[newIdx]] = [state.clips[newIdx], state.clips[idx]];
+      renderClips();
+      saveTimeline();
+    }
+
+    function duplicateClip(idx) {
+      const original = state.clips[idx];
+      state.clips.splice(idx + 1, 0, { ...original });
+      renderClips();
+      saveTimeline();
+    }
+
+    function splitClip(idx, splitAt) {
+      const clip = state.clips[idx];
+      if (!clip) return;
+      const start = Number(clip.in);
+      const end = Number(clip.out);
+      if (!Number.isFinite(splitAt) || splitAt <= start || splitAt >= end) {
+        setStatus('分割位置はクリップの開始と終了の間に指定してください', true);
+        return;
+      }
+      const left = { ...clip, out: splitAt };
+      const right = { ...clip, in: splitAt };
+      state.clips.splice(idx, 1, left, right);
+      renderClips();
+      saveTimeline();
+    }
+
+    function updateClipFromInputs(idx) {
+      const row = clipList.children[idx];
+      if (!row) return;
+      const clip = state.clips[idx];
+      const inRaw = row.querySelector('[data-field="in"]').value;
+      const outRaw = row.querySelector('[data-field="out"]').value;
+      clip.in = Number.isFinite(Number(inRaw)) ? Number(inRaw) : 0;
+      clip.out = outRaw ? Number(outRaw) : (clip.in + 1);
+      clip.fit = row.querySelector('select[data-field="fit"]').value;
+      clip.scale = Math.max(0.1, Number(row.querySelector('[data-field="scale"]').value) || 1);
+      clip.x = Number(row.querySelector('[data-field="x"]').value) || 0;
+      clip.y = Number(row.querySelector('[data-field="y"]').value) || 0;
+      updateTimelineInfo();
+      saveTimeline();
+    }
+
+    function renderClips() {
+      clipList.textContent = '';
+      let total = 0;
+      for (let i = 0; i < state.clips.length; i++) {
+        const clip = state.clips[i];
+        total += Math.max(0, clip.out - clip.in);
+        const li = document.createElement('li');
+        li.dataset.idx = i;
+
+        const thumb = document.createElement('img');
+        thumb.className = 'thumb';
+        thumb.src = clip.previewUrl || '';
+        thumb.alt = clip.type;
+        li.appendChild(thumb);
+
+        const fields = document.createElement('div');
+        fields.className = 'fields';
+
+        const name = document.createElement('strong');
+        name.textContent = clip.name;
+        fields.appendChild(name);
+
+        fields.appendChild(document.createTextNode(' in:'));
+        const inInput = document.createElement('input');
+        inInput.type = 'number';
+        inInput.min = 0;
+        inInput.step = 0.1;
+        inInput.dataset.field = 'in';
+        inInput.value = formatTime(clip.in);
+        inInput.addEventListener('change', () => updateClipFromInputs(i));
+        fields.appendChild(inInput);
+
+        fields.appendChild(document.createTextNode(' out:'));
+        const outInput = document.createElement('input');
+        outInput.type = 'number';
+        outInput.min = 0;
+        outInput.step = 0.1;
+        outInput.dataset.field = 'out';
+        outInput.value = formatTime(clip.out);
+        outInput.addEventListener('change', () => updateClipFromInputs(i));
+        fields.appendChild(outInput);
+
+        fields.appendChild(document.createTextNode(' 表示:'));
+        const fitSelect = document.createElement('select');
+        fitSelect.dataset.field = 'fit';
+        for (const opt of [['cover', 'cover'], ['contain', 'contain']]) {
+          const option = document.createElement('option');
+          option.value = opt[0];
+          option.textContent = opt[1];
+          if (clip.fit === opt[0]) option.selected = true;
+          fitSelect.appendChild(option);
+        }
+        fitSelect.addEventListener('change', () => updateClipFromInputs(i));
+        fields.appendChild(fitSelect);
+
+        fields.appendChild(document.createTextNode(' 拡大:'));
+        const scaleInput = document.createElement('input');
+        scaleInput.type = 'number';
+        scaleInput.min = 0.1;
+        scaleInput.max = 5;
+        scaleInput.step = 0.1;
+        scaleInput.dataset.field = 'scale';
+        scaleInput.value = Number(clip.scale) > 0 ? Number(clip.scale) : 1;
+        scaleInput.style.width = '55px';
+        scaleInput.addEventListener('change', () => updateClipFromInputs(i));
+        fields.appendChild(scaleInput);
+
+        fields.appendChild(document.createTextNode(' X:'));
+        const xInput = document.createElement('input');
+        xInput.type = 'number';
+        xInput.step = 1;
+        xInput.dataset.field = 'x';
+        xInput.value = clip.x ?? 0;
+        xInput.style.width = '60px';
+        xInput.addEventListener('change', () => updateClipFromInputs(i));
+        fields.appendChild(xInput);
+
+        fields.appendChild(document.createTextNode(' Y:'));
+        const yInput = document.createElement('input');
+        yInput.type = 'number';
+        yInput.step = 1;
+        yInput.dataset.field = 'y';
+        yInput.value = clip.y ?? 0;
+        yInput.style.width = '60px';
+        yInput.addEventListener('change', () => updateClipFromInputs(i));
+        fields.appendChild(yInput);
+
+        const splitInput = document.createElement('input');
+        splitInput.type = 'number';
+        splitInput.min = 0;
+        splitInput.step = 0.1;
+        splitInput.placeholder = '分割秒';
+        splitInput.style.width = '70px';
+        fields.appendChild(splitInput);
+
+        li.appendChild(fields);
+
+        const actions = document.createElement('div');
+        actions.className = 'actions';
+
+        const splitBtn = document.createElement('button');
+        splitBtn.type = 'button';
+        splitBtn.className = 'small';
+        splitBtn.textContent = '分割';
+        splitBtn.addEventListener('click', () => {
+          const val = Number(splitInput.value);
+          splitClip(i, val);
+        });
+        actions.appendChild(splitBtn);
+
+        const dupBtn = document.createElement('button');
+        dupBtn.type = 'button';
+        dupBtn.className = 'secondary small';
+        dupBtn.textContent = '複製';
+        dupBtn.addEventListener('click', () => duplicateClip(i));
+        actions.appendChild(dupBtn);
+
+        const upBtn = document.createElement('button');
+        upBtn.type = 'button';
+        upBtn.className = 'secondary small';
+        upBtn.textContent = '↑';
+        upBtn.disabled = i === 0;
+        upBtn.addEventListener('click', () => moveClip(i, -1));
+        actions.appendChild(upBtn);
+
+        const downBtn = document.createElement('button');
+        downBtn.type = 'button';
+        downBtn.className = 'secondary small';
+        downBtn.textContent = '↓';
+        downBtn.disabled = i === state.clips.length - 1;
+        downBtn.addEventListener('click', () => moveClip(i, 1));
+        actions.appendChild(downBtn);
+
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'danger small';
+        removeBtn.textContent = '削除';
+        removeBtn.addEventListener('click', () => removeClip(i));
+        actions.appendChild(removeBtn);
+
+        li.appendChild(actions);
+        clipList.appendChild(li);
+      }
+      updateTimelineInfo(total);
+    }
+
+    function updateTimelineInfo(total) {
+      if (!Number.isFinite(total)) {
+        total = state.clips.reduce((s, c) => s + Math.max(0, c.out - c.in), 0);
+      }
+      const parts = [`クリップ数: ${state.clips.length} / 合計長さ: ${formatTime(total)}s`];
+      if (state.mainAudio) {
+        const mainLen = Math.max(0, Number(state.mainAudio.out) - Number(state.mainAudio.in));
+        if (mainLen < total - 0.001) {
+          parts.push(`⚠ 主音声(${formatTime(mainLen)}s)が動画(${formatTime(total)}s)より短いです`);
+        }
+      }
+      if (state.bgm) {
+        const bgmIn = Number(state.bgm.in) || 0;
+        const bgmOut = Number(state.bgm.out) || 0;
+        const bgmStart = Number(state.bgm.start) || 0;
+        const bgmLen = Math.max(0, bgmOut - bgmIn);
+        const bgmEnd = bgmStart + bgmLen;
+        if (bgmEnd > total + 0.001) {
+          parts.push(`⚠ BGMの再生終了(${formatTime(bgmEnd)}s)が動画(${formatTime(total)}s)を超えています`);
+        } else if (bgmLen < total - 0.001) {
+          parts.push(`⚠ BGM(${formatTime(bgmLen)}s)が動画(${formatTime(total)}s)より短いです（長い範囲を使うかループを検討）`);
+        }
+      }
+      timelineInfo.innerHTML = parts.join('<br>');
+    }
+
+    function setMainAudio(asset) {
+      state.mainAudio = { assetId: asset.assetId, name: asset.name, in: 0, out: asset.duration || 0 };
+      renderMainAudio();
+      updateTimelineInfo();
+      saveTimeline();
+    }
+
+    function renderMainAudio() {
+      if (!state.mainAudio) { mainAudioSection.textContent = '未設定'; return; }
+      mainAudioSection.textContent = '';
+      const wrap = document.createElement('div');
+      wrap.style.display = 'flex';
+      wrap.style.flexWrap = 'wrap';
+      wrap.style.alignItems = 'center';
+      wrap.style.gap = '6px';
+      const span = document.createElement('span');
+      span.textContent = `${state.mainAudio.name} in:`;
+      wrap.appendChild(span);
+      const inInput = document.createElement('input');
+      inInput.type = 'number'; inInput.step = 0.1; inInput.value = state.mainAudio.in;
+      inInput.style.width = '70px';
+      inInput.addEventListener('change', () => { state.mainAudio.in = Number(inInput.value); updateTimelineInfo(); saveTimeline(); });
+      wrap.appendChild(inInput);
+      wrap.appendChild(document.createTextNode(' out:'));
+      const outInput = document.createElement('input');
+      outInput.type = 'number'; outInput.step = 0.1; outInput.value = state.mainAudio.out;
+      outInput.style.width = '70px';
+      outInput.addEventListener('change', () => { state.mainAudio.out = Number(outInput.value); updateTimelineInfo(); saveTimeline(); });
+      wrap.appendChild(outInput);
+      const clear = document.createElement('button');
+      clear.type = 'button'; clear.className = 'danger small';
+      clear.textContent = '解除';
+      clear.addEventListener('click', () => { state.mainAudio = null; renderMainAudio(); updateTimelineInfo(); saveTimeline(); });
+      wrap.appendChild(clear);
+      mainAudioSection.appendChild(wrap);
+    }
+
+    function setBgm(asset) {
+      state.bgm = { assetId: asset.assetId, name: asset.name, in: 0, out: asset.duration || 0, start: 0, volume: 0.3 };
+      renderBgm();
+      updateTimelineInfo();
+      saveTimeline();
+    }
+
+    function renderBgm() {
+      if (!state.bgm) { bgmSection.textContent = '未設定'; return; }
+      bgmSection.textContent = '';
+      const span = document.createElement('span');
+      span.textContent = `${state.bgm.name} `;
+      bgmSection.appendChild(span);
+      for (const { key, label } of [{key:'in', label:'in:'}, {key:'out', label:'out:'}, {key:'start', label:'start:'}]) {
+        bgmSection.appendChild(document.createTextNode(` ${label}`));
+        const input = document.createElement('input');
+        input.type = 'number'; input.step = 0.1; input.value = state.bgm[key];
+        input.style.width = '60px';
+        input.addEventListener('change', () => { state.bgm[key] = Number(input.value); updateTimelineInfo(); saveTimeline(); });
+        bgmSection.appendChild(input);
+      }
+      bgmSection.appendChild(document.createTextNode(' 音量:'));
+      const volInput = document.createElement('input');
+      volInput.type = 'number'; volInput.min = 0; volInput.max = 1; volInput.step = 0.05; volInput.value = state.bgm.volume;
+      volInput.style.width = '60px';
+      volInput.addEventListener('change', () => { state.bgm.volume = Number(volInput.value); saveTimeline(); });
+      bgmSection.appendChild(volInput);
+      const clear = document.createElement('button');
+      clear.type = 'button'; clear.className = 'danger small';
+      clear.textContent = '解除';
+      clear.addEventListener('click', () => { state.bgm = null; renderBgm(); updateTimelineInfo(); saveTimeline(); });
+      bgmSection.appendChild(clear);
+    }
+
+    function createSubtitleRow(data = {}) {
+      const row = document.createElement('div');
+      row.className = 'subtitle-row';
+      const fields = [
+        { type: 'number', placeholder: '開始', step: '0.1', value: data.start ?? 0, w: '70px' },
+        { type: 'number', placeholder: '終了', step: '0.1', value: data.end ?? 1, w: '70px' },
+        { type: 'text', placeholder: '字幕テキスト', value: data.text ?? '', flex: true },
+        { type: 'number', placeholder: 'x', value: data.x ?? 540, w: '55px' },
+        { type: 'number', placeholder: 'y', value: data.y ?? 1500, w: '55px' },
+        { type: 'number', placeholder: 'サイズ', value: data.fontSize ?? 100, w: '55px' },
+        { type: 'color', placeholder: '色', value: data.fontColor ?? '#FFFFFF', w: '45px' },
+        { type: 'number', placeholder: '透', step: '0.1', value: data.fontAlpha ?? 1, w: '55px' },
+        { type: 'number', placeholder: '縁', value: data.borderWidth ?? 0, w: '45px' },
+        { type: 'color', placeholder: '縁色', value: data.borderColor ?? '#000000', w: '45px' },
+        { type: 'checkbox', label: '背景', checked: data.box ?? false },
+        { type: 'color', placeholder: '背色', value: data.boxColor ?? '#000000', w: '45px' },
+        { type: 'number', placeholder: '背透', step: '0.1', value: data.boxAlpha ?? 0.5, w: '55px' },
+        { type: 'select', placeholder: '寄せ', value: data.align ?? 'left', w: '65px', options: { left: '左', center: '中央', right: '右' } },
+        { type: 'select', placeholder: 'フォント', value: data.font ?? '', w: '100px', field: 'font', options: getFontOptions(data.font) },
+      ];
+      for (const f of fields) {
+        let control;
+        if (f.type === 'select') {
+          control = document.createElement('select');
+          if (f.field) control.dataset.field = f.field;
+          for (const [key, label] of Object.entries(f.options)) {
+            const option = document.createElement('option');
+            option.value = key;
+            option.textContent = label;
+            control.appendChild(option);
+          }
+          control.value = String(f.value);
+        } else {
+          control = document.createElement('input');
+          control.type = f.type;
+          control.placeholder = f.placeholder;
+          if (f.type === 'checkbox') {
+            control.checked = Boolean(f.checked);
+            const label = document.createElement('label');
+            label.textContent = f.label;
+            label.style.fontSize = '0.75rem';
+            label.style.display = 'inline-flex';
+            label.style.alignItems = 'center';
+            label.style.gap = '2px';
+            label.appendChild(control);
+            row.appendChild(label);
+            continue;
+          } else {
+            control.value = String(f.value);
+          }
+          if (f.step) control.step = f.step;
+        }
+        if (f.w) control.style.width = f.w;
+        if (f.flex) control.style.flex = '1';
+        row.appendChild(control);
+      }
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'danger small';
+      removeBtn.textContent = '削除';
+      removeBtn.addEventListener('click', () => { row.remove(); saveTimeline(); });
+      row.appendChild(removeBtn);
+      return row;
+    }
+
+    addSubtitleBtn.addEventListener('click', () => {
+      if (subtitleList.children.length >= 20) { setStatus('字幕は最大20件までです', true); return; }
+      subtitleList.appendChild(createSubtitleRow());
+      saveTimeline();
+    });
+    subtitleList.appendChild(createSubtitleRow());
+
+    function getSubtitles() {
+      const rows = subtitleList.querySelectorAll('.subtitle-row');
+      const subs = [];
+      for (const row of rows) {
+        const controls = row.querySelectorAll('input, select');
+        const text = controls[2].value.trim();
+        if (!text) continue;
+        const num = (i) => Number(controls[i].value);
+        const color = (i) => controls[i].value;
+        subs.push({
+          start: num(0),
+          end: num(1),
+          text,
+          x: num(3),
+          y: num(4),
+          fontSize: num(5),
+          fontColor: color(6),
+          fontAlpha: num(7),
+          borderWidth: num(8),
+          borderColor: color(9),
+          box: controls[10].checked,
+          boxColor: color(11),
+          boxAlpha: num(12),
+          align: controls[13].value,
+          font: controls[14].value || undefined,
+        });
+      }
+      return subs;
+    }
+
+    function setSubtitles(subs) {
+      subtitleList.textContent = '';
+      if (subs.length === 0) { subtitleList.appendChild(createSubtitleRow()); updateFontSelectOptions(); return; }
+      for (const s of subs) subtitleList.appendChild(createSubtitleRow(s));
+      updateFontSelectOptions();
+    }
+
+    importTranscriptBtn.addEventListener('click', async () => {
+      if (state.clips.length === 0) { setStatus('先にタイムラインのクリップを追加してください', true); return; }
+      let transcript;
+      try {
+        transcript = JSON.parse(transcriptJson.value);
+        if (!Array.isArray(transcript)) throw new Error('配列を指定してください');
+      } catch (e) {
+        setStatus('トランスクリプトJSONが不正です: ' + e.message, true); return;
+      }
+      setStatus('トランスクリプトを読み込み中...');
+      try {
+        const config = buildTimelineConfig();
+        const data = await api('POST', `/api/projects/${encodeURIComponent(state.projectId)}/timeline/subtitles`, { transcript, config });
+        setSubtitles(data.cues);
+        setStatus(`字幕 ${data.cues.length} 件を設定しました`);
+      } catch (e) {
+        setStatus(e.message, true);
+      }
+    });
+
+    crossfadeEnabled.addEventListener('change', () => { crossfadeDuration.disabled = !crossfadeEnabled.checked; });
+
+    function buildTimelineConfig() {
+      const config = {
+        outputPreset: document.querySelector('input[name="outputPreset"]:checked').value,
+        background: background.value,
+        clips: state.clips.map(c => ({ assetId: c.assetId, in: c.in, out: c.out, fit: c.fit, scale: c.scale ?? 1, x: c.x ?? 0, y: c.y ?? 0 })),
+        mainAudio: state.mainAudio ? { assetId: state.mainAudio.assetId, in: state.mainAudio.in, out: state.mainAudio.out } : undefined,
+        bgm: state.bgm ? { assetId: state.bgm.assetId, in: state.bgm.in, out: state.bgm.out, start: state.bgm.start, volume: state.bgm.volume } : undefined,
+        subtitles: getSubtitles(),
+        crossfade: { enabled: crossfadeEnabled.checked, duration: Number(crossfadeDuration.value) },
+      };
+      return config;
+    }
+
+    generateBtn.addEventListener('click', async () => {
+      if (state.clips.length === 0) { setStatus('クリップを追加してください', true); return; }
+      await saveTimeline();
+      const config = buildTimelineConfig();
+      setStatus('生成中...');
+      generateBtn.disabled = true;
+      result.style.display = 'none';
+      try {
+        const data = await api('POST', `/api/projects/${encodeURIComponent(state.projectId)}/timeline/generate`, config, true);
+        const ts = Date.now();
+        player.src = `${data.outputUrl}?t=${ts}`;
+        downloadLink.href = `${data.outputUrl}?t=${ts}`;
+        details.textContent = JSON.stringify({
+          outputPath: data.outputPath,
+          auditJobId: data.auditJobId,
+          outputPreset: data.outputPreset,
+          timelineHash: data.timelineHash,
+          probe: data.probe,
+          effectiveEncoding: data.effectiveEncoding,
+          sourceHashes: data.sourceHashes,
+          ffmpegVersion: data.ffmpegVersion,
+        }, null, 2);
+        result.style.display = 'block';
+        setStatus('生成完了');
+      } catch (e) {
+        setStatus(e.message, true);
+      } finally {
+        generateBtn.disabled = false;
+      }
+    });
+
+    openFolderBtn.addEventListener('click', async () => {
+      try {
+        const res = await fetch('/api/open-output', { method: 'POST' });
+        const data = await res.json();
+        setStatus(data.opened ? '出力フォルダを開きました' : '出力フォルダを開けませんでした', !data.opened);
+      } catch (e) {
+        setStatus(`フォルダを開けませんでした: ${e.message || e}`, true);
+      }
+    });
+
+    function startLoadProject() {
+      state.projectId = projectIdInput.value.trim() || 'default';
+      loadAssets();
+    }
+
+    loadProjectBtn.addEventListener('click', startLoadProject);
+
+    projectIdInput.addEventListener('change', startLoadProject);
+    projectIdInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') startLoadProject();
+    });
+
+    document.querySelectorAll('input[name="outputPreset"]').forEach(r => r.addEventListener('change', saveTimeline));
+    background.addEventListener('change', saveTimeline);
+    crossfadeEnabled.addEventListener('change', saveTimeline);
+    crossfadeDuration.addEventListener('change', saveTimeline);
+    subtitleList.addEventListener('change', saveTimeline);
+
+    async function analyzeTrends() {
+      setStatus('トレンド分析中...');
+      analyzeTrendBtn.disabled = true;
+      try {
+        const data = await api('GET', `/api/projects/${encodeURIComponent(state.projectId)}/clips/suggest`);
+        state.trendSuggestions = data.suggestions || [];
+        renderTrendSuggestions();
+        setStatus(`トレンド分析完了：${state.trendSuggestions.length} 件の候補`);
+      } catch (e) {
+        setStatus('トレンド分析に失敗: ' + e.message, true);
+      } finally {
+        analyzeTrendBtn.disabled = false;
+      }
+    }
+
+    function renderTrendSuggestions() {
+      trendSuggestions.textContent = '';
+      if (state.trendSuggestions.length === 0) {
+        trendSuggestions.textContent = '候補が見つかりませんでした';
+        autofillTrendBtn.style.display = 'none';
+        return;
+      }
+      autofillTrendBtn.style.display = 'inline-block';
+      for (const s of state.trendSuggestions.slice(0, 5)) {
+        const asset = state.assets.find((a) => a.assetId === s.assetId);
+        const type = s.type ?? asset?.type ?? 'video';
+        const card = document.createElement('div');
+        card.className = 'suggestion-card';
+        const title = document.createElement('div');
+        title.className = 'title';
+        title.textContent = `[${type}] ${asset?.name || s.assetId} ${formatTime(s.in)} - ${formatTime(s.out)}`;
+        card.appendChild(title);
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        meta.textContent = `${type} · score ${s.score.toFixed(2)} · 未使用率 ${(s.unusedFraction * 100).toFixed(0)}%`;
+        card.appendChild(meta);
+        if (s.reasons?.length) {
+          const reasons = document.createElement('div');
+          reasons.className = 'reasons';
+          reasons.textContent = s.reasons.join(' / ');
+          card.appendChild(reasons);
+        }
+        const actions = document.createElement('div');
+        actions.className = 'actions';
+        if (type === 'audio') {
+          const mainBtn = document.createElement('button');
+          mainBtn.type = 'button';
+          mainBtn.className = 'secondary small';
+          mainBtn.textContent = '主音声に設定';
+          mainBtn.addEventListener('click', () => addSuggestionMainAudio(s, asset));
+          actions.appendChild(mainBtn);
+
+          const bgmBtn = document.createElement('button');
+          bgmBtn.type = 'button';
+          bgmBtn.className = 'secondary small';
+          bgmBtn.textContent = 'BGMに設定';
+          bgmBtn.addEventListener('click', () => addSuggestionBgm(s, asset));
+          actions.appendChild(bgmBtn);
+        } else {
+          const addBtn = document.createElement('button');
+          addBtn.type = 'button';
+          addBtn.className = 'small';
+          addBtn.textContent = 'クリップに追加';
+          addBtn.addEventListener('click', () => addSuggestionClip(s, asset));
+          actions.appendChild(addBtn);
+        }
+        card.appendChild(actions);
+        trendSuggestions.appendChild(card);
+      }
+    }
+
+    function addSuggestionClip(s, asset) {
+      if (state.clips.length >= 5) { setStatus('クリップは最大5つまでです', true); return; }
+      state.clips.push({
+        assetId: s.assetId,
+        name: asset?.name || s.assetId,
+        type: asset?.type || 'video',
+        duration: asset?.duration,
+        previewUrl: asset?.previewUrl,
+        in: s.in,
+        out: s.out,
+        fit: s.fit || 'cover',
+        x: s.x ?? 0,
+        y: s.y ?? 0,
+        scale: s.scale ?? 1,
+      });
+      renderClips();
+      saveTimeline();
+    }
+
+    function addSuggestionMainAudio(s, asset) {
+      state.mainAudio = { assetId: s.assetId, name: asset?.name || s.assetId, in: s.in, out: s.out };
+      renderMainAudio();
+      updateTimelineInfo();
+      saveTimeline();
+    }
+
+    function addSuggestionBgm(s, asset) {
+      state.bgm = {
+        assetId: s.assetId,
+        name: asset?.name || s.assetId,
+        in: s.in,
+        out: s.out,
+        start: 0,
+        volume: 0.3,
+      };
+      renderBgm();
+      updateTimelineInfo();
+      saveTimeline();
+    }
+
+    async function autofillTrendClips() {
+      setStatus('おすすめクリップを自動追加中...');
+      try {
+        const data = await api('POST', `/api/projects/${encodeURIComponent(state.projectId)}/timeline/autofill`, {}, true);
+        state.clips = (data.config?.clips || []).map((c) => {
+          const asset = state.assets.find((a) => a.assetId === c.assetId);
+          return { ...c, x: c.x ?? 0, y: c.y ?? 0, scale: c.scale ?? 1, name: asset?.name || c.assetId, type: asset?.type || 'video', duration: asset?.duration, previewUrl: asset?.previewUrl };
+        }).filter((c) => c.assetId);
+        renderClips();
+        saveTimeline();
+        setStatus('自動追加完了');
+      } catch (e) {
+        setStatus('自動追加に失敗: ' + e.message, true);
+      }
+    }
+
+    analyzeTrendBtn.addEventListener('click', analyzeTrends);
+    autofillTrendBtn.addEventListener('click', autofillTrendClips);
+
+    loadFonts().then(() => loadAssets());
+  </script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+# Intentional fake API-key-like strings used in adversarial tests.
+# These are not real credentials; they appear only in test fixtures
+# that assert the audit manifest and subtitle validator reject such text.
+a6f121f7aa36bfb1580375677e7212b11e525682:tests/transcript-subtitle-timeline.test.ts:generic-api-key:961
+5c310d8691a2e33a9c43cdc378d97daf0852af94:tests/transcript-subtitle-timeline.test.ts:generic-api-key:1017
+28450c2fd771a9e8d2c9800db0b56786c871dcad:tests/audit.test.ts:generic-api-key:149
+28450c2fd771a9e8d2c9800db0b56786c871dcad:tests/audit.test.ts:generic-api-key:311
+5ba208833ca8781166d7d29952460815b2358767:tests/audit.test.ts:generic-api-key:192
+072e93ea4bc79c821f998c7488f2fbe21a02be08:tests/audit.test.ts:generic-api-key:164
+072e93ea4bc79c821f998c7488f2fbe21a02be08:tests/audit.test.ts:generic-api-key:464

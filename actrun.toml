@@ -1,0 +1,6 @@
+workspace_mode = "local"
+trust_actions = true
+local_skip_actions = ["actions/checkout"]
+
+[override."actions/setup-node"]
+run = "node --version && npm --version"

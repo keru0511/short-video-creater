@@ -1,0 +1,50 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  verify:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm ci
+      - name: Install approved fonts and ffmpeg
+        if: ${{ !env.ACTRUN_LOCAL }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core fonts-ipafont-gothic
+      - name: Install fake xdg-open for headless GUI tests
+        if: ${{ !env.ACTRUN_LOCAL }}
+        run: |
+          sudo printf '#!/bin/sh\nexit 0\n' > /usr/local/bin/xdg-open
+          sudo chmod +x /usr/local/bin/xdg-open
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Generate fixtures
+        run: npm run generate:fixtures
+      - name: Unit tests
+        run: npm test
+      - name: Generate video
+        run: npm run generate:video -- fixtures/timeline.json
+      - name: Verify output
+        run: npm run verify
+      - name: Generate subtitled video
+        run: npm run generate:video -- fixtures/subtitles.json
+      - name: Verify subtitled output
+        run: npx tsx src/cli.ts --verify-only output/subtitled.mp4
+      - name: Upload generated video
+        if: success() || failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: generated-video
+          path: output/*.mp4

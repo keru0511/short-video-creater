@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "v1",
+  "entries": [
+    {
+      "segmentId": "1bfcb70223f277221c5432609595fca8d84b158a8a7a0981019ff82874da1bf6",
+      "start": 0.5,
+      "end": 2,
+      "text": "Hello"
+    },
+    {
+      "segmentId": "710cb3ed733f533b0e3e790e4a1c9b069a146fa93641137981f35651173071c4",
+      "start": 3,
+      "end": 4,
+      "text": "world"
+    }
+  ]
+}
