@@ -11,6 +11,7 @@ import { resolveOutputPath, writeJsonAtomic } from './catalog.js';
 import { verifyOutputNotSameAsInput } from './catalog-diff.js';
 import { isInside, resolveSafePath, type ProbeInfo } from './core.js';
 import { hashFileFromFh, statsEqual } from './fs-atomic.js';
+import { UserError } from './user-error.js';
 
 const O_RDONLY = constants.O_RDONLY ?? 0;
 const O_NOFOLLOW = constants.O_NOFOLLOW ?? 0;
@@ -505,13 +506,17 @@ export async function verifySelectedSegmentIntegrity(
       );
     }
     if (!Number.isFinite(probe.duration) || probe.duration <= 0) {
-      throw new Error(
+      throw new UserError(
+        'SEGMENT_DURATION_MISMATCH',
         `Segment ${segment.segmentId} source has no positive duration (Duration mismatch): ${segment.relativePath}`,
+        '生成された動画の長さが期待値と一致しません',
       );
     }
     if (Math.abs(probe.duration - segment.duration) > 1e-6) {
-      throw new Error(
+      throw new UserError(
+        'SEGMENT_DURATION_MISMATCH',
         `Segment ${segment.segmentId} duration mismatch (Duration mismatch): expected ${segment.duration}, got ${probe.duration}`,
+        '生成された動画の長さが期待値と一致しません',
       );
     }
     if (segment.start < 0) {

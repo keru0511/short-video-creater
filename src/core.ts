@@ -7,6 +7,7 @@ import { mkdir, rm, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { z } from 'zod';
 import { resolveSafePath, sha256File } from './utils.js';
+import { UserError } from './user-error.js';
 import {
   EffectiveEncodingSettings,
   getEffectiveEncoding,
@@ -225,7 +226,11 @@ async function getAudioPeak(
   });
   const [code] = await once(child, 'close');
   if (code !== 0) {
-    throw new Error(`Could not determine audio peak for ${source}: ${stderr || 'unknown'}`);
+    throw new UserError(
+      'AUDIO_PEAK_DETECTION_FAILED',
+      `Could not determine audio peak for ${source}: ${stderr || 'unknown'}`,
+      '音声ピークを検出できませんでした',
+    );
   }
   return peak;
 }
@@ -279,29 +284,57 @@ export async function validateTimeline(
   const audioClips = timeline.clips.filter((c) => c.type === 'audio');
 
   if (visualClips.length === 0) {
-    throw new Error('Timeline must contain at least one image or video clip');
+    throw new UserError(
+      'TIMELINE_MISSING_VISUAL_CLIP',
+      'Timeline must contain at least one image or video clip',
+      'タイムラインには画像か動画のクリップが1つ以上必要です',
+    );
   }
   if (visualClips.length > 5) {
-    throw new Error('Timeline must contain at most 5 visual clips');
+    throw new UserError(
+      'TIMELINE_TOO_MANY_VISUAL_CLIPS',
+      'Timeline must contain at most 5 visual clips',
+      '画像・動画は最大5つまでです',
+    );
   }
   if (audioClips.length > 1) {
-    throw new Error('Multiple audio clips are not supported in this core slice');
+    throw new UserError(
+      'MULTIPLE_AUDIO_CLIPS',
+      'Multiple audio clips are not supported in this core slice',
+      '音声クリップは1つまでです',
+    );
   }
 
   for (const clip of timeline.clips) {
     if (clip.start >= clip.end) {
-      throw new Error(`Clip ${clip.source} has invalid duration (start >= end)`);
+      throw new UserError(
+        'CLIP_INVALID_DURATION',
+        `Clip ${clip.source} has invalid duration (start >= end)`,
+        'クリップの開始・終了位置が不正です',
+      );
     }
     if (clip.in >= clip.out) {
-      throw new Error(`Clip ${clip.source} has invalid in/out (in >= out)`);
+      throw new UserError(
+        'CLIP_INVALID_IN_OUT',
+        `Clip ${clip.source} has invalid in/out (in >= out)`,
+        'クリップの開始・終了位置が不正です',
+      );
     }
     if (Math.abs(clip.end - clip.start - (clip.out - clip.in)) > 0.001) {
-      throw new Error(`Clip ${clip.source} in/out range must match timeline duration`);
+      throw new UserError(
+        'CLIP_IN_OUT_RANGE_MISMATCH',
+        `Clip ${clip.source} in/out range must match timeline duration`,
+        'クリップのトリム範囲と長さが一致しません',
+      );
     }
   }
 
   if (visualClips[0].start !== 0) {
-    throw new Error('First visual clip start must be 0');
+    throw new UserError(
+      'FIRST_VISUAL_CLIP_START_NOT_ZERO',
+      'First visual clip start must be 0',
+      '最初のクリップは開始位置0秒からにしてください',
+    );
   }
 
   for (let i = 1; i < visualClips.length; i++) {
@@ -327,8 +360,10 @@ export async function validateTimeline(
       const probe = await ffprobe(source);
       const srcDuration = getSourceDuration(source, probe);
       if (clip.out > srcDuration + 0.001) {
-        throw new Error(
+        throw new UserError(
+          'VISUAL_CLIP_EXCEEDS_SOURCE',
           `Visual clip out (${clip.out}) exceeds source duration (${srcDuration})`,
+          '指定範囲が素材の長さを超えています',
         );
       }
     }
@@ -382,7 +417,11 @@ export async function validateTimeline(
   if (audioClips.length === 1) {
     const audio = audioClips[0];
     if (audio.start !== 0) {
-      throw new Error('Audio start must be 0 in this core slice');
+      throw new UserError(
+        'AUDIO_START_NOT_ZERO',
+        'Audio start must be 0 in this core slice',
+        '音声は開始位置0秒からにしてください',
+      );
     }
     if (Math.abs(audio.end - duration) > 0.001) {
       throw new Error(
@@ -393,7 +432,11 @@ export async function validateTimeline(
     const probe = await ffprobe(source);
     const srcDuration = getSourceDuration(source, probe);
     if (audio.out > srcDuration + 0.001) {
-      throw new Error(`Audio clip out (${audio.out}) exceeds source duration (${srcDuration})`);
+      throw new UserError(
+        'AUDIO_CLIP_EXCEEDS_SOURCE',
+        `Audio clip out (${audio.out}) exceeds source duration (${srcDuration})`,
+        '主音声の終了位置が素材の長さを超えています',
+      );
     }
     audioClip = { source, in: audio.in, duration: audio.end - audio.start };
   }
@@ -403,22 +446,36 @@ export async function validateTimeline(
     const bgmSource = resolveSafePath(options.fixturesDir, timeline.bgm.source);
     const probe = await ffprobe(bgmSource);
     if (!probe.hasAudio) {
-      throw new Error(`BGM source must contain an audio stream: ${timeline.bgm.source}`);
+      throw new UserError(
+        'BGM_NO_AUDIO_STREAM',
+        `BGM source must contain an audio stream: ${timeline.bgm.source}`,
+        'BGMファイルに音声ストリームがありません',
+      );
     }
     const srcDuration = getSourceDuration(bgmSource, probe);
     if (!Number.isFinite(srcDuration) || srcDuration <= 0) {
-      throw new Error(`BGM source has no usable duration: ${timeline.bgm.source}`);
+      throw new UserError(
+        'BGM_NO_USABLE_DURATION',
+        `BGM source has no usable duration: ${timeline.bgm.source}`,
+        'BGMファイルの長さを取得できません',
+      );
     }
     if (timeline.bgm.out > srcDuration + 0.001) {
-      throw new Error(
+      throw new UserError(
+        'BGM_OUT_EXCEEDS_SOURCE',
         `BGM out (${timeline.bgm.out}) exceeds source duration (${srcDuration})`,
+        '指定範囲が素材の長さを超えています',
       );
     }
     const bgmDuration = timeline.bgm.out - timeline.bgm.in;
 
     const sampleRate = probe.sampleRate;
     if (!sampleRate || !Number.isFinite(sampleRate) || sampleRate <= 0) {
-      throw new Error(`BGM source has no usable sample rate: ${timeline.bgm.source}`);
+      throw new UserError(
+        'BGM_NO_USABLE_SAMPLE_RATE',
+        `BGM source has no usable sample rate: ${timeline.bgm.source}`,
+        'BGMファイルのサンプリングレートが取得できません',
+      );
     }
     const loopSamples = Math.round(bgmDuration * sampleRate);
     if (loopSamples < 1) {
@@ -455,8 +512,10 @@ export async function validateTimeline(
     ]);
     const mixPeak = mainPeak + timeline.bgm.volume * bgmPeak;
     if (mixPeak > 1.0) {
-      throw new Error(
+      throw new UserError(
+        'BGM_MIX_EXCEEDS_FULL_SCALE',
         `BGM mix would exceed full scale: mainPeak=${mainPeak.toFixed(4)}, bgmPeak=${bgmPeak.toFixed(4)}, volume=${timeline.bgm.volume}`,
+        'BGM音量が大きすぎます',
       );
     }
 
@@ -743,13 +802,21 @@ export async function generate(
 
     const probe = await ffprobe(validated.resolvedOutput);
     if (!probe.hasVideo || probe.videoCodec !== 'h264') {
-      throw new Error(`Expected h264 video stream, got ${probe.videoCodec ?? 'none'}`);
+      throw new UserError(
+        'EXPECTED_H264_VIDEO',
+        `Expected h264 video stream, got ${probe.videoCodec ?? 'none'}`,
+        '動画の形式はh264である必要があります',
+      );
     }
     if (!probe.hasAudio) {
       throw new Error('Expected audio stream');
     }
     if (probe.audioCodec !== 'aac') {
-      throw new Error(`Expected aac audio stream, got ${probe.audioCodec ?? 'none'}`);
+      throw new UserError(
+        'EXPECTED_AAC_AUDIO',
+        `Expected aac audio stream, got ${probe.audioCodec ?? 'none'}`,
+        '音声の形式はaacである必要があります',
+      );
     }
     if (probe.width !== validated.timeline.width || probe.height !== validated.timeline.height) {
       throw new Error(
@@ -758,20 +825,32 @@ export async function generate(
     }
     const frameTolerance = 1 / validated.timeline.fps + 0.001;
     if (Math.abs(probe.duration - validated.duration) > frameTolerance) {
-      throw new Error(`Duration mismatch: expected ${validated.duration}, got ${probe.duration}`);
+      throw new UserError(
+        'OUTPUT_DURATION_MISMATCH',
+        `Duration mismatch: expected ${validated.duration}, got ${probe.duration}`,
+        '生成された動画の長さが期待値と一致しません',
+      );
     }
 
     for (const source of new Set(inputSources)) {
       const after = await sha256File(source);
       if (after !== sourceHashes[source]) {
-        throw new Error(`Source file was modified during generation: ${source}`);
+        throw new UserError(
+          'SOURCE_FILE_MODIFIED',
+          `Source file was modified during generation: ${source}`,
+          '生成中に素材ファイルが変更されました',
+        );
       }
     }
     if (validated.subtitleFonts) {
       for (const f of validated.subtitleFonts) {
         const after = await sha256File(f.fontFile);
         if (after !== f.fontHash) {
-          throw new Error(`Font file was modified during generation: ${f.fontFile}`);
+          throw new UserError(
+            'FONT_FILE_MODIFIED',
+            `Font file was modified during generation: ${f.fontFile}`,
+            '生成中にフォントファイルが変更されました',
+          );
         }
       }
     }

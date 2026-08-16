@@ -6,6 +6,7 @@ import { extname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 import { resolveSafePath, sha256File } from './utils.js';
+import { UserError } from './user-error.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -101,7 +102,11 @@ export function validateCues(cues: Array<Partial<SubtitleCue> & { start: number;
     throw new Error('Video duration must be finite and positive to validate subtitles');
   }
   if (cues.length > SUBTITLE_MAX_CUES) {
-    throw new Error(`Too many subtitle cues: ${cues.length} (max ${SUBTITLE_MAX_CUES})`);
+    throw new UserError(
+      'TOO_MANY_SUBTITLE_CUES',
+      `Too many subtitle cues: ${cues.length} (max ${SUBTITLE_MAX_CUES})`,
+      '字幕の数が多すぎます',
+    );
   }
   for (const cue of cues) {
     if (cue.text.length === 0) {
@@ -122,13 +127,25 @@ export function validateCues(cues: Array<Partial<SubtitleCue> & { start: number;
       throw new Error('Subtitle cue times must be finite and non-negative');
     }
     if (cue.start >= cue.end) {
-      throw new Error(`Subtitle cue start (${cue.start}) must be less than end (${cue.end})`);
+      throw new UserError(
+        'SUBTITLE_CUE_START_AFTER_END',
+        `Subtitle cue start (${cue.start}) must be less than end (${cue.end})`,
+        '字幕の開始時間は終了時間より前である必要があります',
+      );
     }
     if (cue.start > duration + 0.001) {
-      throw new Error(`Subtitle cue start (${cue.start}) exceeds video duration (${duration})`);
+      throw new UserError(
+        'SUBTITLE_CUE_START_EXCEEDS_VIDEO',
+        `Subtitle cue start (${cue.start}) exceeds video duration (${duration})`,
+        '字幕の開始時間が動画の長さを超えています',
+      );
     }
     if (cue.end > duration + 0.001) {
-      throw new Error(`Subtitle cue end (${cue.end}) exceeds video duration (${duration})`);
+      throw new UserError(
+        'SUBTITLE_CUE_END_EXCEEDS_VIDEO',
+        `Subtitle cue end (${cue.end}) exceeds video duration (${duration})`,
+        '字幕の終了時間が動画の長さを超えています',
+      );
     }
   }
 }
@@ -164,7 +181,11 @@ export async function resolveFont(
   const fontFile = resolveSafePath(fontsDir, font);
   const info = await stat(fontFile);
   if (!info.isFile()) {
-    throw new Error(`Font path is not a regular file: ${font}`);
+    throw new UserError(
+      'FONT_PATH_NOT_REGULAR_FILE',
+      `Font path is not a regular file: ${font}`,
+      'フォントファイルが見つかりません',
+    );
   }
 
   if (typeof fontHash !== 'string' || !/^[0-9a-fA-F]{64}$/.test(fontHash)) {
@@ -173,7 +194,11 @@ export async function resolveFont(
   const expectedHash = fontHash.toLowerCase();
   const actualHash = await sha256File(fontFile);
   if (actualHash !== expectedHash) {
-    throw new Error(`Font hash mismatch: expected ${expectedHash}, got ${actualHash}`);
+    throw new UserError(
+      'FONT_HASH_MISMATCH',
+      `Font hash mismatch: expected ${expectedHash}, got ${actualHash}`,
+      'フォントファイルの内容が変更されました',
+    );
   }
 
   let fontFamily: string;
@@ -213,7 +238,11 @@ export async function verifyFontGlyphs(fontFile: string, text: string): Promise<
     const { stdout } = await execFileAsync('fc-query', ['-f', '%{charset}\n', fontFile]);
     charset = stdout.trim();
   } catch (err) {
-    throw new Error(`Failed to query font glyph coverage: ${(err as Error).message}`);
+    throw new UserError(
+      'FONT_GLYPH_COVERAGE_QUERY_FAILED',
+      `Failed to query font glyph coverage: ${(err as Error).message}`,
+      'フォントで使える文字を確認できませんでした',
+    );
   }
   if (!charset) {
     throw new Error('Font glyph coverage information is empty');
