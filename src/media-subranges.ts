@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { z } from 'zod';
 import type { Catalog, CatalogEntry } from './catalog.js';
 import { resolveSafePath } from './core.js';
+import { UserError } from './user-error.js';
 import {
   computeSegmentId,
   getExclusionReason,
@@ -165,8 +166,10 @@ function validateRangeAgainstVerified(
   verified: SegmentIntegrityResult,
 ): void {
   if (Math.abs(verified.probeDuration - segment.duration) > 1e-6) {
-    throw new Error(
+    throw new UserError(
+      'SEGMENT_DURATION_MISMATCH',
       `Segment ${segment.segmentId} duration mismatch (Duration mismatch): expected ${segment.duration}, got ${verified.probeDuration}`,
+      '生成された動画の長さが期待値と一致しません',
     );
   }
   if (segment.start < 0) {

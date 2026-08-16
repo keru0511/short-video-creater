@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { VisualInput } from './core.js';
+import { UserError } from './user-error.js';
 
 // Per-transition absolute upper bound for this slice.
 export const MAX_TRANSITION_DURATION_SECONDS = 2;
@@ -41,8 +42,10 @@ export function validateTransitions(
 
   const expected = visualClips.length - 1;
   if (transitions.length !== expected) {
-    throw new Error(
+    throw new UserError(
+      'TRANSITION_COUNT_MISMATCH',
       `Transition count mismatch: expected ${expected} for ${visualClips.length} visual clips, got ${transitions.length}`,
+      'トランジション数がクリップ数と合いません',
     );
   }
 

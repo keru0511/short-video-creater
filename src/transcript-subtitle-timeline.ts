@@ -35,6 +35,7 @@ import { validateCues, verifyFontGlyphs, withSubtitleDefaults, type SubtitleCue 
 import { TimelineSchema, type Timeline } from './core.js';
 import { isInside } from './thumbnails.js';
 import { resolveSafePath, sha256File } from './utils.js';
+import { UserError } from './user-error.js';
 import type { MediaSegment, MediaSegmentManifest } from './media-segments.js';
 
 const O_RDONLY = constants.O_RDONLY ?? 0;
@@ -469,7 +470,11 @@ async function verifyFontFile(
   try {
     const fontStat = await fontFh.stat();
     if (!fontStat.isFile()) {
-      throw new Error(`Font path is not a regular file: ${style.font}`);
+      throw new UserError(
+        'FONT_PATH_NOT_REGULAR_FILE',
+        `Font path is not a regular file: ${style.font}`,
+        'フォントファイルが見つかりません',
+      );
     }
     if (fontStat.nlink !== 1) {
       throw new Error(`Font file is a hard link or has multiple links: ${style.font}`);
@@ -478,7 +483,11 @@ async function verifyFontFile(
     const expectedHash = style.fontHash.toLowerCase();
     const fontHash = await sha256FromFh(fontFh, fontStat.size);
     if (fontHash !== expectedHash) {
-      throw new Error(`Font hash mismatch for ${style.font}: expected ${expectedHash}, got ${fontHash}`);
+      throw new UserError(
+        'FONT_HASH_MISMATCH',
+        `Font hash mismatch for ${style.font}: expected ${expectedHash}, got ${fontHash}`,
+        'フォントファイルの内容が変更されました',
+      );
     }
 
     const fontStatAfter = await fontFh.stat();
