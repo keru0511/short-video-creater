@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { readdir } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generate } from '../src/core.js';
@@ -34,9 +33,8 @@ afterAll(async () => {
 });
 
 async function listSubtitleTempDirs(): Promise<string[]> {
-  const tmp = tmpdir();
-  const entries = await readdir(tmp);
-  return entries.filter((e) => e.startsWith('svg-subtitles-')).map((e) => join(tmp, e));
+  const entries = await readdir(outputDir);
+  return entries.filter((e) => e.startsWith('svg-subtitles-')).map((e) => join(outputDir, e));
 }
 
 describe('subtitle temp cleanup on cue write failure', () => {

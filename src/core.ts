@@ -776,7 +776,7 @@ export async function generate(
 
   try {
     if (validated.timeline.subtitles && validated.timeline.subtitles.length > 0) {
-      subtitleTempDir = await prepareSubtitleWorkDir();
+      subtitleTempDir = await prepareSubtitleWorkDir(options.outputDir);
       fontFiles = validated.subtitleFonts!.map((f) => f.fontFile);
       subtitleFiles = await writeCueTextFiles(
         validated.timeline.subtitles,
