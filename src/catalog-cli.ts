@@ -4,6 +4,13 @@ import { generateCatalog, writeCatalog } from './catalog.js';
 import { computeCatalogDiff, loadPreviousCatalog, writeCatalogDiff } from './catalog-diff.js';
 import { resolveSafePath } from './core.js';
 import { verifyThumbnail } from './thumbnails.js';
+import { CliUsageError, runCli } from './cli-runner.js';
+
+const usage =
+  'Usage: npx tsx src/catalog-cli.ts <input-dir> <output-relative.json>\n' +
+  '       npx tsx src/catalog-cli.ts diff <previous-catalog.json> <input-dir> <output-relative.json>';
+
+const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
 function normalizeOutputRel(outputRel: string): string {
   // Normalize all path separators to '/' first, then strip a single leading
@@ -18,9 +25,47 @@ function normalizeOutputRel(outputRel: string): string {
   return normalized;
 }
 
-async function generateAndWriteCatalog(inputDir: string, rawOutputRel: string): Promise<void> {
-  const outputRel = normalizeOutputRel(rawOutputRel);
-  const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
+interface GenerateArgs {
+  mode: 'generate';
+  inputDir: string;
+  outputRel: string;
+}
+
+interface DiffArgs {
+  mode: 'diff';
+  prevCatalogRel: string;
+  inputDir: string;
+  outputRel: string;
+}
+
+type CatalogArgs = GenerateArgs | DiffArgs;
+
+function parseArgs(args: string[]): CatalogArgs {
+  if (args.length >= 1 && args[0] === 'diff') {
+    if (args.length !== 4) {
+      throw new CliUsageError();
+    }
+    const [, prevCatalogRel, inputDir, rawOutputRel] = args;
+    return {
+      mode: 'diff',
+      prevCatalogRel,
+      inputDir,
+      outputRel: normalizeOutputRel(rawOutputRel),
+    };
+  }
+
+  if (args.length !== 2) {
+    throw new CliUsageError();
+  }
+  const [inputDir, rawOutputRel] = args;
+  return {
+    mode: 'generate',
+    inputDir,
+    outputRel: normalizeOutputRel(rawOutputRel),
+  };
+}
+
+async function generateAndWriteCatalog(inputDir: string, outputRel: string): Promise<void> {
   const inputRoot = resolve(inputDir);
   const thumbnailDir = resolve(root, 'output', 'catalog-thumbnails');
 
@@ -48,19 +93,10 @@ async function generateAndWriteCatalog(inputDir: string, rawOutputRel: string): 
   console.log(`Catalog written to ${outPath} (${catalog.count} assets)`);
 }
 
-async function generateAndWriteDiff(
-  prevCatalogRel: string,
-  inputDir: string,
-  rawOutputRel: string,
-): Promise<void> {
-  const outputRel = normalizeOutputRel(rawOutputRel);
-  const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
+async function generateAndWriteDiff(prevCatalogRel: string, inputDir: string, outputRel: string): Promise<void> {
   const inputRoot = resolve(inputDir);
   const thumbnailDir = resolve(root, 'output', 'catalog-thumbnails');
 
-  // Resolve the previous catalog path first, and pass it to the writer so we
-  // can fail closed if the output path aliases the previous catalog (same path,
-  // same realpath, same inode, or a hard link).
   const previousPath = resolveSafePath(root, prevCatalogRel);
   const previous = await loadPreviousCatalog(root, prevCatalogRel);
   const current = await generateCatalog(inputDir, {
@@ -75,30 +111,12 @@ async function generateAndWriteDiff(
   console.log(`Catalog diff written to ${outPath}`);
 }
 
-async function main(): Promise<void> {
-  const args = process.argv.slice(2);
-  if (args.length >= 1 && args[0] === 'diff') {
-    if (args.length < 4) {
-      console.error(
-        'Usage: npx tsx src/catalog-cli.ts diff <previous-catalog.json> <input-dir> <output-relative.json>',
-      );
-      process.exit(1);
-    }
-    const [, prevCatalogRel, inputDir, rawOutputRel] = args;
-    await generateAndWriteDiff(prevCatalogRel, inputDir, rawOutputRel);
+async function main(args: CatalogArgs): Promise<void> {
+  if (args.mode === 'diff') {
+    await generateAndWriteDiff(args.prevCatalogRel, args.inputDir, args.outputRel);
     return;
   }
-
-  if (args.length < 2) {
-    console.error('Usage: npx tsx src/catalog-cli.ts <input-dir> <output-relative.json>');
-    process.exit(1);
-  }
-
-  const [inputDir, rawOutputRel] = args;
-  await generateAndWriteCatalog(inputDir, rawOutputRel);
+  await generateAndWriteCatalog(args.inputDir, args.outputRel);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+runCli({ argv: process.argv, parseArgs, main, usage });

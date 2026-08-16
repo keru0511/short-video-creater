@@ -1,30 +1,29 @@
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateMediaPreviews } from './media-preview.js';
+import { CliUsageError, runCli } from './cli-runner.js';
 
-async function main(): Promise<void> {
-  const args = process.argv.slice(2);
+const usage = 'Usage: npx tsx src/media-preview-cli.ts <catalog-json> <asset-root>';
+
+const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
+
+function parseArgs(args: string[]): { catalogPath: string; assetRoot: string } {
   if (args.length < 2) {
-    console.error('Usage: npx tsx src/media-preview-cli.ts <catalog-json> <asset-root>');
-    process.exit(1);
+    throw new CliUsageError();
   }
+  return { catalogPath: args[0], assetRoot: args[1] };
+}
 
-  const [catalogPath, assetRoot] = args;
-  const projectRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
-
-  const manifest = await generateMediaPreviews(catalogPath, assetRoot, { projectRoot });
+async function main({ catalogPath, assetRoot }: { catalogPath: string; assetRoot: string }): Promise<void> {
+  const manifest = await generateMediaPreviews(catalogPath, assetRoot, { projectRoot: root });
   const failed = manifest.summary.failed;
   console.log(`Previews written to ${manifest.previewRoot}`);
   console.log(`  canonical manifest: ${manifest.canonicalPath} (${manifest.canonicalSha256})`);
   console.log(`  run metadata: ${manifest.runPath}`);
   console.log(`  ${manifest.summary.succeeded} succeeded, ${failed} failed`);
   if (failed > 0) {
-    console.error(`${failed} preview(s) failed`);
-    process.exit(1);
+    throw new Error(`${failed} preview(s) failed`);
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+runCli({ argv: process.argv, parseArgs, main, usage });

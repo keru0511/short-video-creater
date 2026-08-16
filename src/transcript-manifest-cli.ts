@@ -1,32 +1,39 @@
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateAndWriteTranscriptManifest, normalizeTranscriptOutputRel } from './transcript-manifest.js';
+import { CliUsageError, runCli } from './cli-runner.js';
 
-async function main(): Promise<void> {
-  const args = process.argv.slice(2);
+const usage =
+  'Usage: npx tsx src/transcript-manifest-cli.ts <media-segments-manifest-rel.json> <transcript-source-rel.json> <input-dir> [output-relative.json]';
+
+const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
+
+interface TranscriptManifestArgs {
+  mediaManifestRel: string;
+  transcriptSourceRel: string;
+  inputDir: string;
+  outputRel: string;
+}
+
+function parseArgs(args: string[]): TranscriptManifestArgs {
   if (args.length < 3) {
-    console.error(
-      'Usage: npx tsx src/transcript-manifest-cli.ts <media-segments-manifest-rel.json> <transcript-source-rel.json> <input-dir> [output-relative.json]',
-    );
-    process.exit(1);
+    throw new CliUsageError();
   }
-
   const [mediaManifestRel, transcriptSourceRel, inputDir, rawOutputRel = 'transcripts/manifest.json'] = args;
   const outputRel = normalizeTranscriptOutputRel(rawOutputRel);
-  const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
+  return { mediaManifestRel, transcriptSourceRel, inputDir, outputRel };
+}
 
+async function main({ mediaManifestRel, transcriptSourceRel, inputDir, outputRel }: TranscriptManifestArgs): Promise<void> {
   const { outputPath, manifest } = await generateAndWriteTranscriptManifest({
     projectRoot: root,
     inputRoot: resolve(inputDir),
     mediaSegmentManifestRel: mediaManifestRel,
-    transcriptSourceRel: transcriptSourceRel,
+    transcriptSourceRel,
     outputRel,
   });
 
   console.log(`Transcript manifest written to ${outputPath} (${manifest.count} utterances)`);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+runCli({ argv: process.argv, parseArgs, main, usage });

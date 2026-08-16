@@ -1,23 +1,29 @@
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateAndWriteTimeline } from './segment-selection.js';
+import { CliUsageError, runCli } from './cli-runner.js';
 
-function printUsage(): void {
-  console.error(
-    'Usage: npx tsx src/segment-selection-cli.ts <manifest-relative.json> <selection-relative.json> <input-dir> [output-relative.json]',
-  );
+const usage =
+  'Usage: npx tsx src/segment-selection-cli.ts <manifest-relative.json> <selection-relative.json> <input-dir> [output-relative.json]';
+
+const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
+
+interface SegmentSelectionArgs {
+  manifestRel: string;
+  selectionRel: string;
+  inputDir: string;
+  outputRel: string;
 }
 
-async function main(): Promise<void> {
-  const args = process.argv.slice(2);
+function parseArgs(args: string[]): SegmentSelectionArgs {
   if (args.length < 3) {
-    printUsage();
-    process.exit(1);
+    throw new CliUsageError();
   }
-
   const [manifestRel, selectionRel, inputDir, outputRel = 'timelines/selection.json'] = args;
-  const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
+  return { manifestRel, selectionRel, inputDir, outputRel };
+}
 
+async function main({ manifestRel, selectionRel, inputDir, outputRel }: SegmentSelectionArgs): Promise<void> {
   const result = await generateAndWriteTimeline({
     projectRoot: root,
     manifestRel,
@@ -33,7 +39,4 @@ async function main(): Promise<void> {
   console.log(`Input selection SHA-256: ${result.selectionSha256}`);
 }
 
-main().catch((err) => {
-  console.error(err instanceof Error ? err.message : String(err));
-  process.exit(1);
-});
+runCli({ argv: process.argv, parseArgs, main, usage });

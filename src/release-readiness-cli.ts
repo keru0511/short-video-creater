@@ -1,9 +1,18 @@
 import { verifyReleaseReadiness, ReadinessError } from './release-readiness.js';
+import { runCli } from './cli-runner.js';
 
-function printUsage(): void {
-  console.log(
-    'Usage: tsx src/release-readiness-cli.ts --project-root <dir> --mp4 <rel> --audit <rel> --decision <rel> [--now <ISO-8601>] [--output-rel <rel>] [--max-json-bytes <bytes>] [--max-artifact-bytes <bytes>]',
-  );
+const usage =
+  'Usage: tsx src/release-readiness-cli.ts --project-root <dir> --mp4 <rel> --audit <rel> --decision <rel> [--now <ISO-8601>] [--output-rel <rel>] [--max-json-bytes <bytes>] [--max-artifact-bytes <bytes>]';
+
+interface ReadinessArgs {
+  projectRoot: string;
+  mp4Rel: string;
+  auditRel: string;
+  decisionRel: string;
+  now?: string;
+  outputRel?: string;
+  maxJsonBytes?: number;
+  maxArtifactBytes?: number;
 }
 
 function parseNumber(value: string, name: string): number {
@@ -20,16 +29,7 @@ function parseNumber(value: string, name: string): number {
   return n;
 }
 
-function parseArgs(argv: string[]): {
-  projectRoot: string;
-  mp4Rel: string;
-  auditRel: string;
-  decisionRel: string;
-  now?: string;
-  outputRel?: string;
-  maxJsonBytes?: number;
-  maxArtifactBytes?: number;
-} {
+function parseArgs(args: string[]): ReadinessArgs {
   let projectRoot: string | undefined;
   let mp4Rel: string | undefined;
   let auditRel: string | undefined;
@@ -41,15 +41,15 @@ function parseArgs(argv: string[]): {
 
   const seen = new Set<string>();
 
-  for (let i = 2; i < argv.length; i++) {
-    const arg = argv[i];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
     if (seen.has(arg)) {
       throw new ReadinessError(`Duplicate option: ${arg}`, 'INVALID_CLI_ARGUMENT');
     }
     seen.add(arg);
 
     const requireNext = (): string => {
-      const value = argv[++i];
+      const value = args[++i];
       if (value === undefined || value.startsWith('--')) {
         throw new ReadinessError(`${arg} requires a value`, 'INVALID_CLI_ARGUMENT');
       }
@@ -77,7 +77,7 @@ function parseArgs(argv: string[]): {
     } else if (arg === '--max-artifact-bytes') {
       maxArtifactBytes = requireNumber('--max-artifact-bytes');
     } else if (arg === '--help' || arg === '-h') {
-      printUsage();
+      console.log(usage);
       process.exit(0);
     } else {
       throw new ReadinessError(`Unknown option: ${arg}`, 'INVALID_CLI_ARGUMENT');
@@ -91,39 +91,33 @@ function parseArgs(argv: string[]): {
   return { projectRoot, mp4Rel, auditRel, decisionRel, now, outputRel, maxJsonBytes, maxArtifactBytes };
 }
 
-async function main(): Promise<void> {
-  const { projectRoot, mp4Rel, auditRel, decisionRel, now, outputRel, maxJsonBytes, maxArtifactBytes } =
-    parseArgs(process.argv);
-
-  try {
-    const result = await verifyReleaseReadiness(projectRoot, mp4Rel, auditRel, decisionRel, {
-      now,
-      readinessOutputRel: outputRel,
-      maxJsonBytes,
-      maxArtifactBytes,
-    });
-    console.log(JSON.stringify(result, null, 2));
-    process.exit(0);
-  } catch (err) {
-    const code = err instanceof ReadinessError ? err.code : 'UNEXPECTED_ERROR';
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(
-      JSON.stringify(
-        {
-          ready: false,
-          error: code,
-          message,
-        },
-        null,
-        2,
-      ),
-    );
-    process.exit(1);
-  }
+async function main({
+  projectRoot,
+  mp4Rel,
+  auditRel,
+  decisionRel,
+  now,
+  outputRel,
+  maxJsonBytes,
+  maxArtifactBytes,
+}: ReadinessArgs): Promise<void> {
+  const result = await verifyReleaseReadiness(projectRoot, mp4Rel, auditRel, decisionRel, {
+    now,
+    readinessOutputRel: outputRel,
+    maxJsonBytes,
+    maxArtifactBytes,
+  });
+  console.log(JSON.stringify(result, null, 2));
 }
 
-main().catch((err) => {
-  const message = err instanceof Error ? err.message : String(err);
-  console.error(JSON.stringify({ ready: false, error: 'UNEXPECTED_ERROR', message }, null, 2));
-  process.exit(1);
+runCli({
+  argv: process.argv,
+  parseArgs,
+  main,
+  usage,
+  errorFormatter: (err) => {
+    const code = err instanceof ReadinessError ? err.code : 'UNEXPECTED_ERROR';
+    const message = err instanceof Error ? err.message : String(err);
+    return JSON.stringify({ ready: false, error: code, message }, null, 2);
+  },
 });

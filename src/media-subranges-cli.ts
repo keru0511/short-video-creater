@@ -1,19 +1,29 @@
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateAndWriteMediaSubrangeManifest } from './media-subranges.js';
+import { CliUsageError, runCli } from './cli-runner.js';
 
-async function main(): Promise<void> {
-  const args = process.argv.slice(2);
+const usage =
+  'Usage: npx tsx src/media-subranges-cli.ts <range-request-rel.json> <catalog-rel.json> <input-dir> [output-rel.json]';
+
+const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
+
+interface MediaSubrangesArgs {
+  rangeRequestRel: string;
+  catalogRel: string;
+  inputDir: string;
+  outputRel: string;
+}
+
+function parseArgs(args: string[]): MediaSubrangesArgs {
   if (args.length < 3 || args.length > 4) {
-    console.error(
-      'Usage: npx tsx src/media-subranges-cli.ts <range-request-rel.json> <catalog-rel.json> <input-dir> [output-rel.json]',
-    );
-    process.exit(1);
+    throw new CliUsageError();
   }
-
   const [rangeRequestRel, catalogRel, inputDir, outputRel = 'media-subranges/manifest.json'] = args;
-  const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
+  return { rangeRequestRel, catalogRel, inputDir, outputRel };
+}
 
+async function main({ rangeRequestRel, catalogRel, inputDir, outputRel }: MediaSubrangesArgs): Promise<void> {
   const { manifest, outputPath } = await generateAndWriteMediaSubrangeManifest({
     projectRoot: root,
     inputRoot: resolve(inputDir),
@@ -22,10 +32,9 @@ async function main(): Promise<void> {
     outputRel,
   });
 
-  console.log(`Media subrange manifest written to ${outputPath} (${manifest.count} segments, ${manifest.excludedCount} excluded)`);
+  console.log(
+    `Media subrange manifest written to ${outputPath} (${manifest.count} segments, ${manifest.excludedCount} excluded)`,
+  );
 }
 
-main().catch((err) => {
-  console.error(err instanceof Error ? err.message : String(err));
-  process.exit(1);
-});
+runCli({ argv: process.argv, parseArgs, main, usage });
