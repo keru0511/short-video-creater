@@ -336,6 +336,27 @@ describe('pipeline E2E', () => {
   );
 
   it(
+    'verifies the generated MP4 through the --verify-only CLI',
+    async () => {
+      const { stdout, stderr } = await execFileAsync(
+        'npx',
+        ['tsx', 'src/cli.ts', '--verify-only', 'output/pipeline-e2e.mp4'],
+        { cwd: root, maxBuffer: 10 * 1024 * 1024 },
+      );
+      expect(stderr).toBe('');
+      const probe = JSON.parse(stdout);
+      expect(probe.width).toBe(1080);
+      expect(probe.height).toBe(1920);
+      expect(probe.fps).toBe(30);
+      expect(probe.videoCodec).toBe('h264');
+      expect(probe.audioCodec).toBe('aac');
+      expect(probe.hasAudio).toBe(true);
+      expect(Math.abs(probe.duration - 5)).toBeLessThan(1 / 30 + 0.001);
+    },
+    120000,
+  );
+
+  it(
     'produces reproducible output and metadata when run twice in the same environment',
     async () => {
       const before = await inputHashes();
