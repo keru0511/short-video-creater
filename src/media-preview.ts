@@ -3,6 +3,7 @@ import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdir, readFile, rename, unlink, writeFile, lstat, realpath } from 'node:fs/promises';
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { tmpdir } from 'node:os';
 import { z } from 'zod';
 import { resolveSafePath, sha256File } from './core.js';
 import { DEFAULT_CONCURRENCY, MAX_CONCURRENCY } from './catalog.js';
@@ -304,7 +305,7 @@ function classifyResolveError(message: string): string {
 
 async function getFfmpegVersion(ffmpegPath = 'ffmpeg'): Promise<string> {
   try {
-    const { stdout } = await execFileAsync(ffmpegPath, ['-version']);
+    const { stdout } = await execFileAsync(ffmpegPath, ['-version'], { cwd: tmpdir() });
     const first = stdout.split('\n')[0] ?? '';
     const match = first.match(/^ffmpeg version\s+(.+?)(?:\s+Copyright|\s|$)/i);
     return match?.[1]?.trim() || first.trim() || 'unknown';

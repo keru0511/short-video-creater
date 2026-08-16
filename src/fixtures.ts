@@ -3,7 +3,8 @@ import { execFile } from 'node:child_process';
 import { constants, existsSync } from 'node:fs';
 import type { Stats } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
-import { copyFile, lstat, mkdir, open, readFile, realpath, writeFile } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, open, readFile, realpath, rmdir, writeFile } from 'node:fs/promises';
+import { setTimeout } from 'node:timers/promises';
 import { basename, dirname, extname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
@@ -482,8 +483,11 @@ export async function verifyMediaSubrangeInputFixtures(
   }
 }
 
+const FIXTURES_VERSION = 'v1';
+const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
+
 export async function generateFixtures(root?: string): Promise<void> {
-  const base = root ?? resolve(fileURLToPath(new URL('..', import.meta.url)));
+  const base = root ?? repoRoot;
   const fixturesDir = join(base, 'fixtures');
   const outputDir = join(base, 'output');
   const fontsDir = join(base, 'fonts');
@@ -491,6 +495,40 @@ export async function generateFixtures(root?: string): Promise<void> {
   await mkdir(fixturesDir, { recursive: true });
   await mkdir(outputDir, { recursive: true });
   await mkdir(fontsDir, { recursive: true });
+
+  const readyFile = join(fixturesDir, '.fixtures-ready');
+  const lockDir = join(fixturesDir, '.fixtures-lock');
+
+  async function isReady(): Promise<boolean> {
+    if (base !== repoRoot) return false;
+    try {
+      return (await readFile(readyFile, 'utf8')).trim() === FIXTURES_VERSION;
+    } catch {
+      return false;
+    }
+  }
+
+  async function acquireLock(): Promise<boolean> {
+    try {
+      await mkdir(lockDir);
+      return true;
+    } catch (err: any) {
+      if (err.code === 'EEXIST') return false;
+      throw err;
+    }
+  }
+
+  async function releaseLock(): Promise<void> {
+    try {
+      await rmdir(lockDir);
+    } catch {}
+  }
+
+  if (await isReady()) return;
+
+  if (await acquireLock()) {
+    try {
+      if (await isReady()) return;
 
   const jobs: string[][] = [
     [
@@ -1179,6 +1217,18 @@ export async function generateFixtures(root?: string): Promise<void> {
 
   // Intentionally unused hash for future font-invariant assertions.
   void ipagothicHash;
+
+      await writeFile(readyFile, FIXTURES_VERSION);
+    } finally {
+      await releaseLock();
+    }
+  } else {
+    for (let i = 0; i < 600; i++) {
+      if (await isReady()) return;
+      await setTimeout(100);
+    }
+    throw new Error(`Fixture generation lock timeout: ${lockDir}`);
+  }
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {

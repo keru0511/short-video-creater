@@ -268,8 +268,8 @@ export async function verifyFontGlyphs(fontFile: string, text: string): Promise<
   }
 }
 
-export async function prepareSubtitleWorkDir(): Promise<string> {
-  return mkdtemp(join(tmpdir(), 'svg-subtitles-'));
+export async function prepareSubtitleWorkDir(baseDir?: string): Promise<string> {
+  return mkdtemp(join(baseDir ?? tmpdir(), 'svg-subtitles-'));
 }
 
 export async function writeCueTextFiles(cues: SubtitleCue[], tempDir: string): Promise<string[]> {
