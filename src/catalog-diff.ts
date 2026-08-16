@@ -5,9 +5,11 @@ import { TextDecoder } from 'node:util';
 import type { FileHandle } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
 import { z } from 'zod';
+import { isInside } from './core.js';
 import type { Catalog, CatalogEntry, WriteJsonAtomicOptions, WriteJsonAtomicTestHooks } from './catalog.js';
 import { resolveOutputPath, writeJsonAtomic } from './catalog.js';
-import { isInside, verifyThumbnail } from './thumbnails.js';
+import { openAt, verifyDirLocation, verifyFileLocation } from './fs-atomic.js';
+import { verifyThumbnail } from './thumbnails.js';
 
 export const DEFAULT_MAX_CATALOG_BYTES = 100 * 1024 * 1024;
 export const DEFAULT_MAX_CATALOG_ASSETS = 100_000;
@@ -214,114 +216,6 @@ function noIdFingerprint(entry: CatalogEntry): string {
     errorCode: entry.error?.code,
     errorMessage: entry.error?.message,
   });
-}
-
-function fdRelativeBase(fh: FileHandle): string | null {
-  const platform = process.platform;
-  if (platform === 'linux') {
-    return `/proc/self/fd/${fh.fd}`;
-  }
-  if (
-    platform === 'darwin' ||
-    platform === 'freebsd' ||
-    platform === 'netbsd' ||
-    platform === 'openbsd'
-  ) {
-    return `/dev/fd/${fh.fd}`;
-  }
-  return null;
-}
-
-async function readFdTarget(fh: FileHandle): Promise<string | null> {
-  const base = fdRelativeBase(fh);
-  if (!base) return null;
-  try {
-    let target = await readlink(base);
-    if (typeof target !== 'string') return null;
-    // /proc/self/fd/<fd> appends " (deleted)" when the inode lost all directory
-    // entries, even if a new entry was later created at the same path. Strip the
-    // suffix and let lstat/dev+ino checks confirm the path is still valid.
-    if (target.endsWith(' (deleted)')) {
-      target = target.slice(0, -' (deleted)'.length);
-    }
-    return target;
-  } catch {
-    return null;
-  }
-}
-
-async function verifyDirLocation(
-  fh: FileHandle,
-  expected: string,
-  projectRoot: string,
-): Promise<void> {
-  const fdStat = await fh.stat();
-  if (!fdStat.isDirectory()) {
-    throw new Error(`not a directory fd: ${expected}`);
-  }
-  const fdTarget = await readFdTarget(fh);
-  const pathToCheck = fdTarget ?? expected;
-  const pathStat = await lstat(pathToCheck).catch(() => null);
-  if (
-    !pathStat ||
-    pathStat.isSymbolicLink() ||
-    !pathStat.isDirectory() ||
-    pathStat.dev !== fdStat.dev ||
-    pathStat.ino !== fdStat.ino
-  ) {
-    throw new Error(`directory location does not match: ${expected}`);
-  }
-  const real = fdTarget ?? (await realpath(expected).catch(() => null));
-  if (!real || !isInside(projectRoot, real)) {
-    throw new Error(`directory outside project root: ${expected}`);
-  }
-}
-
-async function verifyFileLocation(
-  fh: FileHandle,
-  expected: string,
-  projectRoot: string,
-): Promise<void> {
-  const fdStat = await fh.stat();
-  const fdTarget = await readFdTarget(fh);
-  const pathToCheck = fdTarget ?? expected;
-  const pathStat = await lstat(pathToCheck).catch(() => null);
-  if (
-    !pathStat ||
-    pathStat.isSymbolicLink() ||
-    !pathStat.isFile() ||
-    pathStat.dev !== fdStat.dev ||
-    pathStat.ino !== fdStat.ino ||
-    pathStat.size !== fdStat.size
-  ) {
-    throw new Error(`file location does not match: ${expected}`);
-  }
-  const real = fdTarget ?? (await realpath(expected).catch(() => null));
-  if (!real || !isInside(projectRoot, real)) {
-    throw new Error(`file outside project root: ${expected}`);
-  }
-}
-
-async function openAt(
-  parentFh: FileHandle,
-  component: string,
-  flags: number,
-  fallbackPath: string,
-  projectRoot: string,
-): Promise<FileHandle> {
-  const base = fdRelativeBase(parentFh);
-  let target: string;
-  if (base) {
-    target = `${base}/${component}`;
-  } else {
-    // Fallback for platforms without fd-relative directory capabilities. We
-    // re-verify the directory fd matches its pathname before every use. This
-    // cannot close the remaining pathname race window, so the adversarial
-    // same-user contract is not supported on such platforms.
-    await verifyDirLocation(parentFh, fallbackPath, projectRoot);
-    target = resolve(fallbackPath, component);
-  }
-  return open(target, flags);
 }
 
 async function openFileInsideProjectRoot(

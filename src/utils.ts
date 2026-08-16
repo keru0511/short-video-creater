@@ -1,6 +1,24 @@
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, realpathSync } from 'node:fs';
-import { isAbsolute, resolve, sep } from 'node:path';
+import path, { isAbsolute, resolve, sep } from 'node:path';
+
+export function isInside(base: string, target: string, pathImpl: typeof path = path): boolean {
+  const baseResolved = pathImpl.resolve(base);
+  const targetResolved = pathImpl.resolve(target);
+  if (baseResolved === targetResolved) {
+    return true;
+  }
+  const rel = pathImpl.relative(baseResolved, targetResolved);
+  if (
+    pathImpl.isAbsolute(rel) ||
+    rel === '..' ||
+    rel.startsWith('..' + pathImpl.sep) ||
+    rel.split(pathImpl.sep).includes('..')
+  ) {
+    return false;
+  }
+  return true;
+}
 
 function isSubPath(base: string, target: string): boolean {
   const baseWithSep = base.endsWith(sep) ? base : base + sep;

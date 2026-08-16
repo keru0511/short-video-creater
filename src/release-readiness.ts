@@ -2,7 +2,7 @@ import { spawn, type StdioOptions } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { closeSync, constants, fstatSync, lstatSync, openSync, realpathSync } from 'node:fs';
 import type { BigIntStats, Stats } from 'node:fs';
-import { lstat, link, mkdir, open, realpath, rmdir, unlink } from 'node:fs/promises';
+import { lstat, open, realpath } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { TextEncoder, TextDecoder } from 'node:util';
@@ -19,9 +19,17 @@ import {
 } from './approval.js';
 import { resolveOutputPath } from './catalog.js';
 import { verifyOutputNotSameAsInput } from './catalog-diff.js';
-import { type ProbeInfo } from './core.js';
+import { isInside, type ProbeInfo } from './core.js';
+import {
+  isENOTEMPTY,
+  mkdirAt,
+  openAt,
+  rmdirAt,
+  statsEqual,
+  verifyDirLocation,
+  verifyDirLocationSync,
+} from './fs-atomic.js';
 import { resolveSafePath } from './utils.js';
-import { isInside } from './thumbnails.js';
 
 export const READINESS_SCHEMA_VERSION = '1.0.0';
 
@@ -344,6 +352,8 @@ export class ReadinessError extends Error {
     super(message, { cause });
   }
 }
+
+const outputCollisionError = (message: string) => new ReadinessError(message, 'OUTPUT_COLLISION');
 
 function parseVerifiedAt(now: Date | string | number | undefined): string {
   if (now === undefined) {
@@ -720,15 +730,6 @@ interface HashAndProbeOptions {
   beforeRead?: (path: string) => Promise<void> | void;
   beforeProbe?: (path: string, buffer: Buffer) => Promise<void> | void;
   beforeHash?: (path: string, buffer: Buffer) => Promise<void> | void;
-}
-
-function statsEqual(a: Stats | BigIntStats, b: Stats | BigIntStats): boolean {
-  return (
-    String(a.dev) === String(b.dev) &&
-    String(a.ino) === String(b.ino) &&
-    String(a.size) === String(b.size) &&
-    String((a as BigIntStats).mtimeNs ?? a.mtimeMs) === String((b as BigIntStats).mtimeNs ?? b.mtimeMs)
-  );
 }
 
 function dirStatsEqual(a: BigIntStats, b: BigIntStats): boolean {
@@ -1677,182 +1678,6 @@ export async function verifyReleaseReadiness(
   };
 }
 
-const O_WRONLY_REPORT = constants.O_WRONLY;
-
-function isEEXIST(err: unknown): boolean {
-  return err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'EEXIST';
-}
-
-function isEISDIR(err: unknown): boolean {
-  return err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'EISDIR';
-}
-
-function isENOTEMPTY(err: unknown): boolean {
-  return err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOTEMPTY';
-}
-
-function isENOENT(err: unknown): boolean {
-  return err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT';
-}
-
-function fdRelativeBaseReport(fh: FileHandle): string | null {
-  const platform = process.platform;
-  if (platform === 'linux') {
-    return `/proc/self/fd/${fh.fd}`;
-  }
-  if (platform === 'darwin' || platform === 'freebsd' || platform === 'netbsd' || platform === 'openbsd') {
-    return `/dev/fd/${fh.fd}`;
-  }
-  return null;
-}
-
-function outputCollisionErrorReport(message: string): NodeJS.ErrnoException {
-  const err = new Error(message) as NodeJS.ErrnoException;
-  err.code = 'OUTPUT_COLLISION';
-  return err;
-}
-
-async function verifyDirLocationReport(fh: FileHandle, expected: string, projectRoot: string): Promise<void> {
-  const fdStat = (await fh.stat({ bigint: true })) as BigIntStats;
-  if (!fdStat.isDirectory()) {
-    throw outputCollisionErrorReport(`not a directory fd: ${expected}`);
-  }
-  const pathStat = (await lstat(expected, { bigint: true }).catch(() => null)) as BigIntStats | null;
-  if (
-    !pathStat ||
-    pathStat.isSymbolicLink() ||
-    !pathStat.isDirectory() ||
-    String(pathStat.dev) !== String(fdStat.dev) ||
-    String(pathStat.ino) !== String(fdStat.ino)
-  ) {
-    throw outputCollisionErrorReport(`directory location does not match: ${expected}`);
-  }
-  const real = await realpath(expected).catch(() => null);
-  if (!real || !isInside(projectRoot, real)) {
-    throw outputCollisionErrorReport(`directory outside project root: ${expected}`);
-  }
-}
-
-function verifyDirLocationReportSync(fh: FileHandle, expected: string, projectRoot: string): void {
-  let fdStat: BigIntStats;
-  try {
-    fdStat = fstatSync(fh.fd, { bigint: true }) as BigIntStats;
-  } catch (err) {
-    throw outputCollisionErrorReport(`directory fd stat failed: ${expected}`);
-  }
-  if (!fdStat.isDirectory()) {
-    throw outputCollisionErrorReport(`not a directory fd: ${expected}`);
-  }
-  let pathStat: BigIntStats;
-  try {
-    pathStat = lstatSync(expected, { bigint: true }) as BigIntStats;
-  } catch {
-    throw outputCollisionErrorReport(`directory location does not match: ${expected}`);
-  }
-  if (
-    pathStat.isSymbolicLink() ||
-    !pathStat.isDirectory() ||
-    String(pathStat.dev) !== String(fdStat.dev) ||
-    String(pathStat.ino) !== String(fdStat.ino)
-  ) {
-    throw outputCollisionErrorReport(`directory location does not match: ${expected}`);
-  }
-  let real: string;
-  try {
-    real = realpathSync(expected);
-  } catch {
-    throw outputCollisionErrorReport(`directory realpath failed: ${expected}`);
-  }
-  if (!isInside(projectRoot, real)) {
-    throw outputCollisionErrorReport(`directory outside project root: ${expected}`);
-  }
-}
-
-async function mkdirAtReport(parentFh: FileHandle, component: string, fallbackPath: string): Promise<boolean> {
-  const base = fdRelativeBaseReport(parentFh);
-  if (base) {
-    try {
-      await mkdir(`${base}/${component}`);
-      return true;
-    } catch (err) {
-      if (!isEEXIST(err)) throw err;
-      return false;
-    }
-  }
-  try {
-    await mkdir(resolve(fallbackPath, component), { recursive: true });
-  } catch (err) {
-    if (!isEEXIST(err)) throw err;
-  }
-  return false;
-}
-
-async function openAtReport(
-  parentFh: FileHandle,
-  component: string,
-  flags: number,
-  fallbackPath: string,
-  projectRoot: string,
-  mode?: number,
-): Promise<FileHandle> {
-  const base = fdRelativeBaseReport(parentFh);
-  if (base) {
-    if (mode !== undefined) {
-      return open(`${base}/${component}`, flags, mode);
-    }
-    return open(`${base}/${component}`, flags);
-  }
-  await verifyDirLocationReport(parentFh, fallbackPath, projectRoot);
-  if (mode !== undefined) {
-    return open(resolve(fallbackPath, component), flags, mode);
-  }
-  return open(resolve(fallbackPath, component), flags);
-}
-
-async function unlinkAtReport(parentFh: FileHandle, name: string, fallbackPath: string): Promise<void> {
-  const base = fdRelativeBaseReport(parentFh);
-  if (base) {
-    await unlink(`${base}/${name}`);
-  } else {
-    await unlink(resolve(fallbackPath, name));
-  }
-}
-
-async function lstatAtReport(parentFh: FileHandle, name: string, fallbackPath: string): Promise<BigIntStats> {
-  const base = fdRelativeBaseReport(parentFh);
-  if (base) {
-    return (await lstat(`${base}/${name}`, { bigint: true })) as BigIntStats;
-  }
-  return (await lstat(resolve(fallbackPath, name), { bigint: true })) as BigIntStats;
-}
-
-async function rmdirAtReport(parentFh: FileHandle, name: string, fallbackPath: string): Promise<void> {
-  const base = fdRelativeBaseReport(parentFh);
-  if (base) {
-    await rmdir(`${base}/${name}`);
-  } else {
-    await rmdir(resolve(fallbackPath, name));
-  }
-}
-
-async function linkAtReport(
-  parentFh: FileHandle,
-  oldName: string,
-  newName: string,
-  fallbackPath: string,
-): Promise<void> {
-  const base = fdRelativeBaseReport(parentFh);
-  if (base) {
-    await link(`${base}/${oldName}`, `${base}/${newName}`);
-  } else {
-    await link(resolve(fallbackPath, oldName), resolve(fallbackPath, newName));
-  }
-}
-
-function isCleanupErrorReport(err: unknown): err is NodeJS.ErrnoException {
-  return err instanceof Error && 'code' in err;
-}
-
 interface WriteReadinessReportInputs {
   mp4Snapshot: ArtifactSnapshot;
   auditArtifactSnapshot: ArtifactSnapshot;
@@ -2771,25 +2596,24 @@ async function writeReadinessReportAtomic(
   let originalDirMode: number | undefined;
 
   try {
-    await verifyDirLocationReport(rootFh, root, root);
+    await verifyDirLocation(rootFh, root, root, { makeError: outputCollisionError, useFdTarget: false });
 
     for (let i = 0; i < parts.length; i++) {
       const comp = parts[i];
       const nextPath = resolve(currentPath, comp);
-      await verifyDirLocationReport(dirFh, currentPath, root);
-      const created = await mkdirAtReport(dirFh, comp, currentPath);
+      await verifyDirLocation(dirFh, currentPath, root, { makeError: outputCollisionError, useFdTarget: false });
+      const created = await mkdirAt(dirFh, comp, currentPath);
       let childFh: FileHandle;
       try {
-        childFh = await openAtReport(dirFh, comp, O_RDONLY | O_DIRECTORY | O_NOFOLLOW, currentPath, root);
+        childFh = await openAt(dirFh, comp, O_RDONLY | O_DIRECTORY | O_NOFOLLOW, currentPath, root, undefined, {
+          makeError: outputCollisionError,
+          useFdTarget: false,
+        });
         handles.push(childFh);
-        await verifyDirLocationReport(childFh, nextPath, root);
+        await verifyDirLocation(childFh, nextPath, root, { makeError: outputCollisionError, useFdTarget: false });
       } catch (err) {
         if (created) {
-          try {
-            await rmdirAtReport(dirFh, comp, currentPath);
-          } catch {
-            // best-effort cleanup of directory we just created
-          }
+          await rmdirAt(dirFh, comp, currentPath, { ignoreErrors: true });
         }
         throw err;
       }
@@ -2801,7 +2625,7 @@ async function writeReadinessReportAtomic(
       currentPath = nextPath;
     }
 
-    await verifyDirLocationReport(dirFh, currentPath, root);
+    await verifyDirLocation(dirFh, currentPath, root, { makeError: outputCollisionError, useFdTarget: false });
 
     // Capture the original directory mode before the test hook / temp creation,
     // so any failure from this point on can restore the original mode. Failures
@@ -2849,7 +2673,7 @@ async function writeReadinessReportAtomic(
 
       // Confirm the target directory is still at the expected path before the
       // final input re-verification.
-      await verifyDirLocationReport(dirFh, currentPath, root);
+      await verifyDirLocation(dirFh, currentPath, root, { makeError: outputCollisionError, useFdTarget: false });
 
       // Re-verify all four inputs. Any change after the initial read is caught
       // before the report is published.
@@ -2881,7 +2705,7 @@ async function writeReadinessReportAtomic(
       );
 
       // Synchronous directory location check right before the single-step link.
-      verifyDirLocationReportSync(dirFh, currentPath, root);
+      verifyDirLocationSync(dirFh, currentPath, root, { makeError: outputCollisionError, useFdTarget: false });
 
       // Post-stat/helper-start window hook. Tests may modify inputs here; the
       // Python helper's final content/stat re-verification will reject the
@@ -2919,9 +2743,9 @@ async function writeReadinessReportAtomic(
     for (let i = createdDirs.length - 1; i >= 0; i--) {
       const { parentFh, component, parentPath } = createdDirs[i];
       try {
-        await rmdirAtReport(parentFh, component, parentPath);
+        await rmdirAt(parentFh, component, parentPath);
       } catch (cleanupErr) {
-        if (!isCleanupErrorReport(cleanupErr) || cleanupErr.code !== 'ENOTEMPTY') {
+        if (!isENOTEMPTY(cleanupErr)) {
           cleanupErrors.push(cleanupErr);
         }
       }

@@ -6,6 +6,7 @@ import { lstat, mkdir, open, realpath, rmdir } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { z } from 'zod';
+import { isInside, sha256File } from './core.js';
 import { resolveOutputPath, type WriteJsonAtomicTestHooks } from './catalog.js';
 import { verifyOutputNotSameAsInput } from './catalog-diff.js';
 import {
@@ -15,9 +16,16 @@ import {
   type MediaSegment,
   type MediaSegmentManifest,
 } from './media-segments.js';
+import {
+  fdRelativeBase,
+  hashFileFromFh,
+  isEEXIST,
+  mkdirAt,
+  openAt,
+  rmdirAt,
+  verifyDirLocation,
+} from './fs-atomic.js';
 import { readJsonFileSafe } from './segment-selection.js';
-import { isInside } from './thumbnails.js';
-import { sha256File } from './core.js';
 
 const O_RDONLY = constants.O_RDONLY;
 const O_WRONLY = constants.O_WRONLY;
@@ -715,16 +723,6 @@ export interface VerifiedMediaSegment extends MediaSegment {
   probeDuration: number;
 }
 
-function statsEqual(a: Stats, b: Stats): boolean {
-  return (
-    a.dev === b.dev &&
-    a.ino === b.ino &&
-    a.size === b.size &&
-    a.mtimeMs === b.mtimeMs &&
-    a.ctimeMs === b.ctimeMs
-  );
-}
-
 export async function verifySegmentIntegrity(
   segment: MediaSegment,
   inputRoot: string,
@@ -795,27 +793,6 @@ function bigintIdentity(st: BigIntStats): { dev: string; ino: string; size: stri
   };
 }
 
-async function sha256FromFd(fh: FileHandle, size: number): Promise<string> {
-  const hash = createHash('sha256');
-  const readBuffer = Buffer.alloc(CHUNK_SIZE);
-  let offset = 0;
-  while (offset < size) {
-    const toRead = Math.min(CHUNK_SIZE, size - offset);
-    const { bytesRead } = await fh.read(readBuffer, 0, toRead, offset);
-    if (bytesRead === 0) {
-      throw new Error(`File shrank during hash read: ${offset} of ${size} bytes`);
-    }
-    hash.update(readBuffer.subarray(0, bytesRead));
-    offset += bytesRead;
-  }
-  const eofBuf = Buffer.alloc(1);
-  const { bytesRead: eofRead } = await fh.read(eofBuf, 0, 1, size);
-  if (eofRead !== 0) {
-    throw new Error('File grew during hash read');
-  }
-  return hash.digest('hex');
-}
-
 export async function captureInputSnapshot(
   projectRoot: string,
   resolved: string,
@@ -867,7 +844,7 @@ export async function captureInputSnapshot(
       }
 
       const stBig = (await fh.stat({ bigint: true })) as BigIntStats;
-      const actualSha256 = await sha256FromFd(fh, st.size);
+      const actualSha256 = (await hashFileFromFh(fh, { knownSize: st.size })).sha256;
       if (actualSha256 !== sha256) {
         throw new Error(`${label} content changed before snapshot`);
       }
@@ -910,92 +887,6 @@ export async function captureInputSnapshot(
     }
   } finally {
     await parentFh.close().catch(() => {});
-  }
-}
-
-function fdRelativeBase(fh: FileHandle): string | null {
-  const platform = process.platform;
-  if (platform === 'linux') {
-    return `/proc/self/fd/${fh.fd}`;
-  }
-  if (platform === 'darwin' || platform === 'freebsd' || platform === 'netbsd' || platform === 'openbsd') {
-    return `/dev/fd/${fh.fd}`;
-  }
-  return null;
-}
-
-function isEEXIST(err: unknown): boolean {
-  return err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'EEXIST';
-}
-
-async function verifyDirLocation(fh: FileHandle, expected: string, projectRoot: string): Promise<void> {
-  const fdStat = await fh.stat();
-  if (!fdStat.isDirectory()) {
-    throw new Error(`not a directory fd: ${expected}`);
-  }
-  const pathStat = await lstat(expected).catch(() => null);
-  if (
-    !pathStat ||
-    pathStat.isSymbolicLink() ||
-    !pathStat.isDirectory() ||
-    pathStat.dev !== fdStat.dev ||
-    pathStat.ino !== fdStat.ino
-  ) {
-    throw new Error(`directory location does not match: ${expected}`);
-  }
-  const real = await realpath(expected).catch(() => null);
-  if (!real || !isInside(resolve(projectRoot), real)) {
-    throw new Error(`directory outside project root: ${expected}`);
-  }
-}
-
-async function mkdirAt(parentFh: FileHandle, component: string, fallbackPath: string): Promise<boolean> {
-  const base = fdRelativeBase(parentFh);
-  if (base) {
-    try {
-      await mkdir(`${base}/${component}`);
-      return true;
-    } catch (err) {
-      if (!isEEXIST(err)) throw err;
-      return false;
-    }
-  }
-  try {
-    await mkdir(resolve(fallbackPath, component), { recursive: true });
-  } catch (err) {
-    if (!isEEXIST(err)) throw err;
-  }
-  return false;
-}
-
-async function openAt(
-  parentFh: FileHandle,
-  component: string,
-  flags: number,
-  fallbackPath: string,
-  projectRoot: string,
-  mode?: number,
-): Promise<FileHandle> {
-  const base = fdRelativeBase(parentFh);
-  if (base) {
-    if (mode !== undefined) {
-      return open(`${base}/${component}`, flags, mode);
-    }
-    return open(`${base}/${component}`, flags);
-  }
-  await verifyDirLocation(parentFh, fallbackPath, projectRoot);
-  if (mode !== undefined) {
-    return open(resolve(fallbackPath, component), flags, mode);
-  }
-  return open(resolve(fallbackPath, component), flags);
-}
-
-async function rmdirAt(parentFh: FileHandle, name: string, fallbackPath: string): Promise<void> {
-  const base = fdRelativeBase(parentFh);
-  if (base) {
-    await rmdir(`${base}/${name}`).catch(() => {});
-  } else {
-    await rmdir(resolve(fallbackPath, name)).catch(() => {});
   }
 }
 
