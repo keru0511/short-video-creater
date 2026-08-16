@@ -7,13 +7,45 @@ on:
       - main
 
 jobs:
-  verify:
+  lint-typecheck:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
           node-version: 20
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+
+  unit-tests:
+    runs-on: ubuntu-22.04
+    needs: []
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+      - name: Cache npm and fixtures
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            fixtures
+            fonts
+          key: deps-${{ runner.os }}-${{ hashFiles('package-lock.json', 'src/fixtures.ts') }}
+          restore-keys: |
+            deps-${{ runner.os }}-
       - name: Install dependencies
         run: npm ci
       - name: Install approved fonts and ffmpeg
@@ -26,14 +58,45 @@ jobs:
         run: |
           sudo printf '#!/bin/sh\nexit 0\n' > /usr/local/bin/xdg-open
           sudo chmod +x /usr/local/bin/xdg-open
-      - name: Typecheck
-        run: npm run typecheck
-      - name: Lint
-        run: npm run lint
       - name: Generate fixtures
         run: npm run generate:fixtures
       - name: Unit tests
         run: npm test
+
+  render-e2e:
+    runs-on: ubuntu-22.04
+    needs: []
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+      - name: Cache npm and fixtures
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            fixtures
+            fonts
+          key: deps-${{ runner.os }}-${{ hashFiles('package-lock.json', 'src/fixtures.ts') }}
+          restore-keys: |
+            deps-${{ runner.os }}-
+      - name: Install dependencies
+        run: npm ci
+      - name: Install approved fonts and ffmpeg
+        if: ${{ !env.ACTRUN_LOCAL }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core fonts-ipafont-gothic
+      - name: Install fake xdg-open for headless GUI tests
+        if: ${{ !env.ACTRUN_LOCAL }}
+        run: |
+          sudo printf '#!/bin/sh\nexit 0\n' > /usr/local/bin/xdg-open
+          sudo chmod +x /usr/local/bin/xdg-open
+      - name: Generate fixtures
+        run: npm run generate:fixtures
+      - name: E2E tests
+        run: npm run test:e2e
       - name: Generate video
         run: npm run generate:video -- fixtures/timeline.json
       - name: Verify output

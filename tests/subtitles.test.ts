@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readFile, readdir, writeFile, mkdir, rm } from 'node:fs/promises';
@@ -15,23 +15,28 @@ import {
   validateCues,
 } from '../src/subtitles.js';
 import { generateFixtures } from '../src/fixtures.js';
+import { cleanupOutputDir, isolatedOutputDir } from './helpers.js';
 
 const execFileAsync = promisify(execFile);
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const fixturesDir = join(root, 'fixtures');
-const outputDir = join(root, 'output');
+let outputDir = join(root, 'output');
 const fontsDir = join(root, 'fonts');
 
 let dejavuHash = '';
 let ipagothicHash = '';
 
 beforeAll(async () => {
-  await mkdir(outputDir, { recursive: true });
+  outputDir = await isolatedOutputDir(root);
   await generateFixtures(root);
   dejavuHash = await sha256File(join(fontsDir, 'DejaVuSans.ttf'));
   ipagothicHash = await sha256File(join(fontsDir, 'IPAGothic.ttf'));
 }, 60000);
+
+afterAll(async () => {
+  await cleanupOutputDir(outputDir);
+});
 
 async function extractRegion(
   videoPath: string,

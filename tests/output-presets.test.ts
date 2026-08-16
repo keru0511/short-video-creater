@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { promisify } from 'node:util';
@@ -11,6 +11,7 @@ import {
   TimelineSchema,
 } from '../src/core.js';
 import { generateFixtures } from '../src/fixtures.js';
+import { cleanupOutputDir, isolatedOutputDir } from './helpers.js';
 import {
   getEffectiveEncoding,
   getEncodingArgs,
@@ -23,12 +24,17 @@ const execFileAsync = promisify(execFile);
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const fixturesDir = join(root, 'fixtures');
-const outputDir = join(root, 'output');
+let outputDir = join(root, 'output');
 const fontsDir = join(root, 'fonts');
 
 beforeAll(async () => {
+  outputDir = await isolatedOutputDir(root);
   await generateFixtures(root);
 }, 60000);
+
+afterAll(async () => {
+  await cleanupOutputDir(outputDir);
+});
 
 async function extractFrame(videoPath: string, timeSec: number): Promise<Buffer> {
   const { stdout } = await execFileAsync(

@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { generate } from '../src/core.js';
 import { sha256File } from '../src/utils.js';
 import { generateFixtures } from '../src/fixtures.js';
+import { cleanupOutputDir, isolatedOutputDir } from './helpers.js';
 
 vi.mock('../src/subtitles.js', async (importOriginal) => {
   const mod = (await importOriginal()) as typeof import('../src/subtitles.js');
@@ -17,15 +18,20 @@ vi.mock('../src/subtitles.js', async (importOriginal) => {
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const fixturesDir = join(root, 'fixtures');
-const outputDir = join(root, 'output');
+let outputDir = join(root, 'output');
 const fontsDir = join(root, 'fonts');
 
 let dejavuHash = '';
 
 beforeAll(async () => {
+  outputDir = await isolatedOutputDir(root);
   await generateFixtures(root);
   dejavuHash = await sha256File(join(fontsDir, 'DejaVuSans.ttf'));
 }, 60000);
+
+afterAll(async () => {
+  await cleanupOutputDir(outputDir);
+});
 
 async function listSubtitleTempDirs(): Promise<string[]> {
   const tmp = tmpdir();
