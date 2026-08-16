@@ -5,7 +5,16 @@ import { lstat, link, mkdir, open, readlink, realpath, rmdir, unlink } from 'nod
 import type { FileHandle } from 'node:fs/promises';
 import path, { relative, resolve, sep } from 'node:path';
 import type { Stats } from 'node:fs';
-import { resolveSafePath } from './core.js';
+import { isInside, resolveSafePath } from './core.js';
+import {
+  atPath,
+  fdRelativeBase,
+  isErrnoException,
+  readFdTarget,
+  readFileAt,
+  verifyDirLocation,
+  verifyFileLocation,
+} from './fs-atomic.js';
 
 const O_RDONLY = constants.O_RDONLY;
 const O_WRONLY = constants.O_WRONLY;
@@ -81,29 +90,6 @@ interface FfprobeStream {
 
 interface FfprobeResult {
   streams: FfprobeStream[];
-}
-
-function isErrnoException(err: unknown): err is NodeJS.ErrnoException {
-  return err instanceof Error && 'code' in err;
-}
-
-export function isInside(base: string, target: string, pathImpl: typeof path = path): boolean {
-  const baseResolved = pathImpl.resolve(base);
-  const targetResolved = pathImpl.resolve(target);
-  if (baseResolved === targetResolved) {
-    return true;
-  }
-  const sep = pathImpl.sep;
-  const rel = pathImpl.relative(baseResolved, targetResolved);
-  if (
-    pathImpl.isAbsolute(rel) ||
-    rel === '..' ||
-    rel.startsWith('..' + sep) ||
-    rel.split(sep).includes('..')
-  ) {
-    return false;
-  }
-  return true;
 }
 
 function isValidSha256(hash: string): boolean {
@@ -201,105 +187,6 @@ async function verifySourceUnchanged(sourceFh: FileHandle, sourceSize: number, b
     Number(afterStat.mtimeMs) !== Number(beforeStat.mtimeMs)
   ) {
     throw new Error('source changed after fstat');
-  }
-}
-
-function fdRelativeBase(fh: FileHandle): string | null {
-  const platform = process.platform;
-  if (platform === 'linux') {
-    return `/proc/self/fd/${fh.fd}`;
-  }
-  if (platform === 'darwin' || platform === 'freebsd' || platform === 'netbsd' || platform === 'openbsd') {
-    return `/dev/fd/${fh.fd}`;
-  }
-  return null;
-}
-
-async function readFdTarget(fh: FileHandle): Promise<string | null> {
-  const base = fdRelativeBase(fh);
-  if (!base) return null;
-  try {
-    let target = await readlink(base);
-    if (typeof target !== 'string') return null;
-    // /proc/self/fd/<fd> appends " (deleted)" when the inode lost all directory
-    // entries, even if a new entry was later created at the same path. Strip the
-    // suffix and let lstat/dev+ino checks confirm the path is still valid.
-    if (target.endsWith(' (deleted)')) {
-      target = target.slice(0, -' (deleted)'.length);
-    }
-    return target;
-  } catch {
-    return null;
-  }
-}
-
-async function atPath(dirFh: FileHandle, component: string, fallbackDir: string, projectRoot: string): Promise<string> {
-  const base = fdRelativeBase(dirFh);
-  if (base) {
-    return `${base}/${component}`;
-  }
-  // Fallback for platforms without fd-relative directory capabilities. We
-  // re-verify the directory path is still the same inode and inside the project
-  // root before every use. This cannot eliminate the path-name race window on
-  // such platforms; the threat model therefore requires a separate OS identity
-  // or immutable storage for adversarial same-user deployments.
-  await verifyDirLocation(dirFh, fallbackDir, projectRoot);
-  return resolve(fallbackDir, component);
-}
-
-async function readFileAt(fh: FileHandle, position: number, length: number): Promise<Buffer> {
-  const buf = Buffer.alloc(length);
-  let offset = 0;
-  while (offset < length) {
-    const { bytesRead } = await fh.read(buf, offset, length - offset, position + offset);
-    if (bytesRead === 0) {
-      break;
-    }
-    offset += bytesRead;
-  }
-  return buf.subarray(0, offset);
-}
-
-async function verifyFileLocation(fh: FileHandle, expected: string, boundaryRoot: string): Promise<void> {
-  const fdStat = await fh.stat();
-  const fdTarget = await readFdTarget(fh);
-  const pathToCheck = fdTarget ?? expected;
-  const pathStat = await lstat(pathToCheck).catch(() => null);
-  if (
-    !pathStat ||
-    pathStat.isSymbolicLink() ||
-    !pathStat.isFile() ||
-    pathStat.dev !== fdStat.dev ||
-    pathStat.ino !== fdStat.ino
-  ) {
-    throw new Error(`file location mismatch: ${expected}`);
-  }
-  const real = fdTarget ?? (await realpath(expected).catch(() => null));
-  if (!real || !isInside(boundaryRoot, real)) {
-    throw new Error(`file outside boundary: ${expected}`);
-  }
-}
-
-async function verifyDirLocation(fh: FileHandle, expected: string, projectRoot: string): Promise<void> {
-  const fdStat = await fh.stat();
-  if (!fdStat.isDirectory()) {
-    throw new Error(`not a directory fd: ${expected}`);
-  }
-  const fdTarget = await readFdTarget(fh);
-  const pathToCheck = fdTarget ?? expected;
-  const pathStat = await lstat(pathToCheck).catch(() => null);
-  if (
-    !pathStat ||
-    pathStat.isSymbolicLink() ||
-    !pathStat.isDirectory() ||
-    pathStat.dev !== fdStat.dev ||
-    pathStat.ino !== fdStat.ino
-  ) {
-    throw new Error(`directory location mismatch: ${expected}`);
-  }
-  const real = fdTarget ?? (await realpath(expected).catch(() => null));
-  if (!real || !isInside(projectRoot, real)) {
-    throw new Error(`directory outside project root: ${expected}`);
   }
 }
 
@@ -1111,3 +998,5 @@ export async function verifyThumbnail(
     await finalFh?.close().catch(() => {});
   }
 }
+
+export { isInside };

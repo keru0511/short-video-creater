@@ -9,12 +9,11 @@ import { z } from 'zod';
 import type { Catalog, CatalogEntry, WriteJsonAtomicOptions } from './catalog.js';
 import { resolveOutputPath, writeJsonAtomic } from './catalog.js';
 import { verifyOutputNotSameAsInput } from './catalog-diff.js';
-import { resolveSafePath, type ProbeInfo } from './core.js';
-import { isInside } from './thumbnails.js';
+import { isInside, resolveSafePath, type ProbeInfo } from './core.js';
+import { hashFileFromFh, statsEqual } from './fs-atomic.js';
 
 const O_RDONLY = constants.O_RDONLY ?? 0;
 const O_NOFOLLOW = constants.O_NOFOLLOW ?? 0;
-const CHUNK_SIZE = 64 * 1024;
 
 export const SEGMENT_SCHEMA_VERSION = 'v1';
 export const MEDIA_SUBRANGE_SCHEMA_VERSION = 'v2';
@@ -298,27 +297,6 @@ function parseFfprobeOutput(stdout: string): ProbeInfo {
   };
 }
 
-async function sha256FromFd(fh: FileHandle, size: number): Promise<string> {
-  const hash = createHash('sha256');
-  const readBuffer = Buffer.alloc(CHUNK_SIZE);
-  let offset = 0;
-  while (offset < size) {
-    const toRead = Math.min(CHUNK_SIZE, size - offset);
-    const { bytesRead } = await fh.read(readBuffer, 0, toRead, offset);
-    if (bytesRead === 0) {
-      throw new Error(`File shrank during hash read: ${offset} of ${size} bytes`);
-    }
-    hash.update(readBuffer.subarray(0, bytesRead));
-    offset += bytesRead;
-  }
-  const eofBuf = Buffer.alloc(1);
-  const { bytesRead: eofRead } = await fh.read(eofBuf, 0, 1, size);
-  if (eofRead !== 0) {
-    throw new Error('File grew during hash read');
-  }
-  return hash.digest('hex');
-}
-
 const FFPROBE_TIMEOUT_MS = 30_000;
 const FFPROBE_KILL_TIMEOUT_MS = 5_000;
 const FFPROBE_MAX_STDOUT_BYTES = 1 * 1024 * 1024;
@@ -444,16 +422,6 @@ export function ffprobeFromFd(fd: number, options?: FfprobeFromFdOptions): Promi
   });
 }
 
-function statsEqual(a: Stats, b: Stats): boolean {
-  return (
-    a.dev === b.dev &&
-    a.ino === b.ino &&
-    a.size === b.size &&
-    a.mtimeMs === b.mtimeMs &&
-    a.ctimeMs === b.ctimeMs
-  );
-}
-
 export async function verifySelectedSegmentIntegrity(
   projectRoot: string,
   inputRoot: string,
@@ -508,7 +476,7 @@ export async function verifySelectedSegmentIntegrity(
       );
     }
 
-    const actualContentId = await sha256FromFd(assetFh, statBeforeOpen.size);
+    const actualContentId = (await hashFileFromFh(assetFh, { knownSize: statBeforeOpen.size })).sha256;
     if (actualContentId !== segment.assetContentId) {
       throw new Error(
         `Segment ${segment.segmentId} assetContentId mismatch (SHA-256 mismatch): expected ${segment.assetContentId}, got ${actualContentId}`,

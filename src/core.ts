@@ -113,7 +113,7 @@ export type Clip = z.infer<typeof ClipSchema>;
 export type Fit = z.infer<typeof FitSchema>;
 export type Transition = z.infer<typeof TransitionSchema>;
 
-export { resolveSafePath, sha256File } from './utils.js';
+export { resolveSafePath, sha256File, isInside } from './utils.js';
 export { MAX_TRANSITION_DURATION_SECONDS, TransitionSchema, validateTransitions } from './transitions.js';
 
 interface FfprobeStream {

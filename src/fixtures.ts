@@ -7,8 +7,8 @@ import { copyFile, lstat, mkdir, open, readFile, realpath, writeFile } from 'nod
 import { basename, dirname, extname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
-import { fdRelativeBase, openAt, verifyDirLocation } from './catalog.js';
-import { isInside } from './thumbnails.js';
+import { isInside } from './core.js';
+import { fdRelativeBase, openAt, statsEqual, verifyDirLocation } from './fs-atomic.js';
 import { computeSegmentId, MEDIA_SUBRANGE_SCHEMA_VERSION, type MediaSegmentManifest } from './media-segments.js';
 import { buildTranscriptManifest, type TranscriptSource } from './transcript-manifest.js';
 import { generateAndWriteSubtitleTimeline } from './transcript-subtitle-timeline.js';
@@ -261,16 +261,6 @@ export interface VerifyMediaSubrangeInputFixturesOptions {
     beforeFileClose?: (fh: FileHandle) => Promise<void> | void;
     fdRelativeBase?: (fh: FileHandle) => string | null;
   };
-}
-
-function statsEqual(a: Stats, b: Stats): boolean {
-  return (
-    a.dev === b.dev &&
-    a.ino === b.ino &&
-    a.size === b.size &&
-    a.mtimeMs === b.mtimeMs &&
-    a.ctimeMs === b.ctimeMs
-  );
 }
 
 // Verify the tracked README sub-range fixture inputs are regular files inside

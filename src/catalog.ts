@@ -5,8 +5,18 @@ import type { FileHandle } from 'node:fs/promises';
 import { lstat, mkdir, open, rmdir, readdir, realpath, rename, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
-import { sha256File } from './core.js';
-import { generateThumbnail, isInside, ThumbnailInfo } from './thumbnails.js';
+import { isInside, sha256File } from './core.js';
+import {
+  hashFileFromFh,
+  isEEXIST,
+  mkdirAt,
+  openAt,
+  renameAt,
+  rmdirAt,
+  unlinkAt,
+  verifyDirLocation,
+} from './fs-atomic.js';
+import { generateThumbnail, ThumbnailInfo } from './thumbnails.js';
 
 const O_RDONLY = constants.O_RDONLY;
 const O_WRONLY = constants.O_WRONLY;
@@ -556,145 +566,6 @@ export interface WriteJsonAtomicOptions {
   verify?: WriteJsonAtomicVerify;
 }
 
-function isEEXIST(err: unknown): boolean {
-  return err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'EEXIST';
-}
-
-export function fdRelativeBase(fh: FileHandle): string | null {
-  const platform = process.platform;
-  if (platform === 'linux') {
-    return `/proc/self/fd/${fh.fd}`;
-  }
-  if (platform === 'darwin' || platform === 'freebsd' || platform === 'netbsd' || platform === 'openbsd') {
-    return `/dev/fd/${fh.fd}`;
-  }
-  return null;
-}
-
-export async function verifyDirLocation(fh: FileHandle, expected: string, projectRoot: string): Promise<void> {
-  const fdStat = await fh.stat();
-  if (!fdStat.isDirectory()) {
-    throw new Error(`not a directory fd: ${expected}`);
-  }
-  const pathStat = await lstat(expected).catch(() => null);
-  if (
-    !pathStat ||
-    pathStat.isSymbolicLink() ||
-    !pathStat.isDirectory() ||
-    pathStat.dev !== fdStat.dev ||
-    pathStat.ino !== fdStat.ino
-  ) {
-    throw new Error(`directory location does not match: ${expected}`);
-  }
-  const real = await realpath(expected).catch(() => null);
-  if (!real || !isInside(projectRoot, real)) {
-    throw new Error(`directory outside project root: ${expected}`);
-  }
-}
-
-async function mkdirAt(parentFh: FileHandle, component: string, fallbackPath: string): Promise<boolean> {
-  const base = fdRelativeBase(parentFh);
-  if (base) {
-    try {
-      await mkdir(`${base}/${component}`);
-      return true;
-    } catch (err) {
-      if (!isEEXIST(err)) throw err;
-      return false;
-    }
-  }
-  // Fallback for platforms without fd-relative paths: create the directory if
-  // it does not exist. We cannot reliably detect creation on these platforms,
-  // so we report false to avoid deleting a pre-existing directory.
-  try {
-    await mkdir(resolve(fallbackPath, component), { recursive: true });
-  } catch (err) {
-    if (!isEEXIST(err)) throw err;
-  }
-  return false;
-}
-
-export async function openAt(
-  parentFh: FileHandle,
-  component: string,
-  flags: number,
-  fallbackPath: string,
-  projectRoot: string,
-  mode?: number,
-): Promise<FileHandle> {
-  const base = fdRelativeBase(parentFh);
-  if (base) {
-    if (mode !== undefined) {
-      return open(`${base}/${component}`, flags, mode);
-    }
-    return open(`${base}/${component}`, flags);
-  }
-  await verifyDirLocation(parentFh, fallbackPath, projectRoot);
-  if (mode !== undefined) {
-    return open(resolve(fallbackPath, component), flags, mode);
-  }
-  return open(resolve(fallbackPath, component), flags);
-}
-
-async function renameAt(
-  parentFh: FileHandle,
-  oldName: string,
-  newName: string,
-  fallbackPath: string,
-): Promise<void> {
-  const base = fdRelativeBase(parentFh);
-  if (base) {
-    await rename(`${base}/${oldName}`, `${base}/${newName}`);
-  } else {
-    await rename(resolve(fallbackPath, oldName), resolve(fallbackPath, newName));
-  }
-}
-
-async function unlinkAt(parentFh: FileHandle, name: string, fallbackPath: string): Promise<void> {
-  const base = fdRelativeBase(parentFh);
-  if (base) {
-    await unlink(`${base}/${name}`).catch(() => {});
-  } else {
-    await unlink(resolve(fallbackPath, name)).catch(() => {});
-  }
-}
-
-async function rmdirAt(parentFh: FileHandle, name: string, fallbackPath: string): Promise<void> {
-  const base = fdRelativeBase(parentFh);
-  if (base) {
-    await rmdir(`${base}/${name}`).catch(() => {});
-  } else {
-    await rmdir(resolve(fallbackPath, name)).catch(() => {});
-  }
-}
-
-async function hashFileFromFh(fh: FileHandle): Promise<{ sha256: string; size: number }> {
-  const CHUNK = 64 * 1024;
-  const hash = createHash('sha256');
-  const stat = await fh.stat();
-  if (!stat.isFile()) {
-    throw new Error('Committed output is not a regular file');
-  }
-  const fileSize = stat.size;
-  const readBuffer = Buffer.alloc(CHUNK);
-  let offset = 0;
-  while (offset < fileSize) {
-    const toRead = Math.min(CHUNK, fileSize - offset);
-    const { bytesRead } = await fh.read(readBuffer, 0, toRead, offset);
-    if (bytesRead === 0) {
-      throw new Error(`Committed output shrank during read: ${offset} of ${fileSize} bytes`);
-    }
-    hash.update(readBuffer.subarray(0, bytesRead));
-    offset += bytesRead;
-  }
-  const eofBuf = Buffer.alloc(1);
-  const { bytesRead: eofRead } = await fh.read(eofBuf, 0, 1, fileSize);
-  if (eofRead !== 0) {
-    throw new Error('Committed output grew during read');
-  }
-  return { sha256: hash.digest('hex'), size: fileSize };
-}
-
 async function verifyFinalContent(
   dirFh: FileHandle,
   fileName: string,
@@ -704,7 +575,7 @@ async function verifyFinalContent(
 ): Promise<void> {
   const fh = await openAt(dirFh, fileName, O_RDONLY | O_NOFOLLOW, dirPath, projectRoot);
   try {
-    const { sha256, size } = await hashFileFromFh(fh);
+    const { sha256, size } = await hashFileFromFh(fh, { label: 'Committed output' });
     if (verify.expectedSha256 !== undefined && sha256 !== verify.expectedSha256) {
       throw new Error('Committed output SHA-256 does not match expected');
     }
