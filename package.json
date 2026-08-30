@@ -19,7 +19,7 @@
     "verify": "tsx src/cli.ts --verify-only output/video.mp4"
   },
   "devDependencies": {
-    "@types/node": "^26.2.0",
+    "@types/node": "^26.4.0",
     "tsx": "^4.0.0",
     "typescript": "^7.0.2",
     "vitest": "^1.5.0",
