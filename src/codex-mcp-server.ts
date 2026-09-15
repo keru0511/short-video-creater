@@ -89,6 +89,12 @@ function validateProjectId(projectId: string): void {
   }
 }
 
+function getProjectId(args: Record<string, unknown>): string {
+  const projectId = getString(args, 'projectId');
+  validateProjectId(projectId);
+  return projectId;
+}
+
 async function listProjects(): Promise<string[]> {
   const projectsDir = resolve(root, 'gui', 'projects');
   const entries = await readdir(projectsDir).catch(() => []);
@@ -404,11 +410,9 @@ const TOOLS = [
 ];
 
 async function handleToolCall(name: string, args: Record<string, unknown>): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
-  const projectId = getString(args, 'projectId');
-  validateProjectId(projectId);
-
   switch (name) {
     case 'upload_media': {
+      const projectId = getProjectId(args);
       const filePath = getString(args, 'filePath');
       const resolvedPath = resolve(root, filePath);
       const data = await readFile(resolvedPath);
@@ -417,6 +421,7 @@ async function handleToolCall(name: string, args: Record<string, unknown>): Prom
     }
 
     case 'list_media': {
+      const projectId = getProjectId(args);
       const assets = await listProjectAssets(root, projectId);
       return textResult(JSON.stringify(assets, null, 2));
     }
@@ -427,6 +432,7 @@ async function handleToolCall(name: string, args: Record<string, unknown>): Prom
     }
 
     case 'add_clip': {
+      const projectId = getProjectId(args);
       const clip: ProjectClipConfig = {
         assetId: getString(args, 'assetId'),
         in: args.in !== undefined ? getNumber(args, 'in') : undefined,
@@ -441,6 +447,7 @@ async function handleToolCall(name: string, args: Record<string, unknown>): Prom
     }
 
     case 'set_clip_range': {
+      const projectId = getProjectId(args);
       const index = getNumber(args, 'index');
       const patch: Partial<ProjectClipConfig> = {};
       if (args.in !== undefined) patch.in = getNumber(args, 'in');
@@ -455,11 +462,13 @@ async function handleToolCall(name: string, args: Record<string, unknown>): Prom
     }
 
     case 'split_clip': {
+      const projectId = getProjectId(args);
       const config = await splitProjectClip(root, projectId, getNumber(args, 'index'), getNumber(args, 'splitAt'));
       return textResult(JSON.stringify(config, null, 2));
     }
 
     case 'duplicate_clip': {
+      const projectId = getProjectId(args);
       const config = await loadProjectConfig(root, projectId);
       const index = getNumber(args, 'index');
       if (index < 0 || index >= config.clips.length) throw new Error('クリップが見つかりません');
@@ -470,16 +479,19 @@ async function handleToolCall(name: string, args: Record<string, unknown>): Prom
     }
 
     case 'move_clip': {
+      const projectId = getProjectId(args);
       const config = await moveProjectClip(root, projectId, getNumber(args, 'index'), getNumber(args, 'newIndex'));
       return textResult(JSON.stringify(config, null, 2));
     }
 
     case 'remove_clip': {
+      const projectId = getProjectId(args);
       const config = await removeProjectClip(root, projectId, getNumber(args, 'index'));
       return textResult(JSON.stringify(config, null, 2));
     }
 
     case 'set_main_audio': {
+      const projectId = getProjectId(args);
       const config = await loadProjectConfig(root, projectId);
       const asset = await getProjectAsset(root, projectId, getString(args, 'assetId'));
       if (!asset || asset.type !== 'audio') throw new Error('音声素材が見つかりません');
@@ -491,6 +503,7 @@ async function handleToolCall(name: string, args: Record<string, unknown>): Prom
     }
 
     case 'set_bgm': {
+      const projectId = getProjectId(args);
       const config = await loadProjectConfig(root, projectId);
       const asset = await getProjectAsset(root, projectId, getString(args, 'assetId'));
       if (!asset || asset.type !== 'audio') throw new Error('音声素材が見つかりません');
@@ -508,6 +521,7 @@ async function handleToolCall(name: string, args: Record<string, unknown>): Prom
     }
 
     case 'set_crossfade': {
+      const projectId = getProjectId(args);
       const config = await loadProjectConfig(root, projectId);
       config.crossfade = {
         enabled: Boolean(args.enabled),
@@ -518,6 +532,7 @@ async function handleToolCall(name: string, args: Record<string, unknown>): Prom
     }
 
     case 'set_output_settings': {
+      const projectId = getProjectId(args);
       const config = await loadProjectConfig(root, projectId);
       if (args.outputPreset === 'preview' || args.outputPreset === 'final') {
         config.outputPreset = args.outputPreset;
@@ -531,6 +546,7 @@ async function handleToolCall(name: string, args: Record<string, unknown>): Prom
     }
 
     case 'add_subtitle': {
+      const projectId = getProjectId(args);
       const config = await loadProjectConfig(root, projectId);
       if (!Array.isArray(config.subtitles)) config.subtitles = [];
       if (config.subtitles.length >= 20) throw new Error('字幕は最大20件までです');
@@ -560,6 +576,7 @@ async function handleToolCall(name: string, args: Record<string, unknown>): Prom
     }
 
     case 'clear_subtitles': {
+      const projectId = getProjectId(args);
       const config = await loadProjectConfig(root, projectId);
       config.subtitles = undefined;
       await saveProjectConfig(root, projectId, config);
@@ -567,6 +584,7 @@ async function handleToolCall(name: string, args: Record<string, unknown>): Prom
     }
 
     case 'import_transcript': {
+      const projectId = getProjectId(args);
       const config = await loadProjectConfig(root, projectId);
       const transcript = args.transcript;
       if (!Array.isArray(transcript)) throw new Error('transcript は配列で指定してください');
@@ -577,21 +595,25 @@ async function handleToolCall(name: string, args: Record<string, unknown>): Prom
     }
 
     case 'get_timeline': {
+      const projectId = getProjectId(args);
       const config = await loadProjectConfig(root, projectId);
       return textResult(JSON.stringify(config, null, 2));
     }
 
     case 'suggest_trending_clips': {
+      const projectId = getProjectId(args);
       const suggestions = await getTrendingClipSuggestions(root, projectId);
       return textResult(JSON.stringify(suggestions, null, 2));
     }
 
     case 'autofill_timeline': {
+      const projectId = getProjectId(args);
       const config = await autofillTimelineWithTrendingClips(root, projectId);
       return textResult(JSON.stringify(config, null, 2));
     }
 
     case 'export_video': {
+      const projectId = getProjectId(args);
       const config = await loadProjectConfig(root, projectId);
       const result = await exportVideo(projectId, config);
       return textResult(JSON.stringify(result, null, 2));
