@@ -231,7 +231,7 @@ describe('transcript-manifest-cli', () => {
         inputDir,
         outputRel,
       ]),
-    ).rejects.toThrow(/UNKNOWN_REASON|Invalid enum value/);
+    ).rejects.toThrow(/UNKNOWN_REASON|Invalid enum value|Invalid option/);
   });
 
   it('rejects unknown nested fields in the media segment manifest', async () => {
