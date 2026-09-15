@@ -91,12 +91,24 @@ describe('Codex MCP server', () => {
     expect(names).toContain('import_transcript');
   }, 30000);
 
+  it('lists projects without a projectId and scopes project validation', async () => {
+    const result = await callTool('list_projects', {});
+    expect(Array.isArray(result)).toBe(true);
+
+    await expect(callTool('get_timeline', {})).rejects.toThrow('projectId は必須です');
+    await expect(callTool('get_timeline', { projectId: 'invalid project id' })).rejects.toThrow('プロジェクトIDに使用できない文字が含まれています');
+    await expect(callTool('unknown_tool', {})).rejects.toThrow('未知のツールです: unknown_tool');
+  }, 30000);
+
   it('uploads media and builds a timeline via tools', async () => {
     const image = await callTool('upload_media', { projectId, filePath: resolve(root, 'fixtures', 'image.png') });
     expect(image.type).toBe('image');
 
     const audio = await callTool('upload_media', { projectId, filePath: resolve(root, 'fixtures', 'audio.mp3') });
     expect(audio.type).toBe('audio');
+
+    const assets = await callTool('list_media', { projectId });
+    expect(assets.map((asset: { assetId: string }) => asset.assetId)).toEqual(expect.arrayContaining([image.assetId, audio.assetId]));
 
     const timeline = await callTool('add_clip', { projectId, assetId: image.assetId, in: 0, out: 2, fit: 'cover' });
     expect(timeline.clips.length).toBe(1);
