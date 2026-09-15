@@ -585,7 +585,7 @@ describe('readMediaSegmentManifest / readTranscriptSource', () => {
     });
     await writeJson(project, 'media-unknown-reason.json', media);
     await expect(readMediaSegmentManifest(project, 'media-unknown-reason.json')).rejects.toThrow(
-      /UNKNOWN_REASON|Invalid enum value/,
+      /UNKNOWN_REASON|Invalid enum value|Invalid option/,
     );
   });
 

@@ -432,6 +432,15 @@ function runFfmpegStreamed(
     child.on('error', (err) => {
       if (!killed) abort(err);
     });
+    child.on('exit', (code) => {
+      childExited = true;
+      childExitCode = code;
+      if (code !== 0 && !finalized) {
+        // Stop the pump as soon as the process exits. Waiting for the stdio
+        // streams to close can consume several more source chunks.
+        abort(new Error(`ffmpeg failed with ${code}: ${stderr.slice(-2000)}`));
+      }
+    });
     child.on('close', (code) => {
       childExited = true;
       childExitCode = code;
