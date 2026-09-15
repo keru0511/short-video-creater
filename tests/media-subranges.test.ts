@@ -482,7 +482,7 @@ describe('media-subranges', () => {
       inputRoot: project.inputDir,
       catalog,
       request: makeRangeRequest([{ ...base, start: -0.5, end: 1 }]),
-    })).rejects.toThrow(/greater than or equal to 0|non-negative|nonnegative/i);
+    })).rejects.toThrow(/greater than or equal to 0|non-negative|nonnegative|expected number to be >=0/i);
   });
 
   it('rejects a range whose end exceeds the probed source duration', async () => {
